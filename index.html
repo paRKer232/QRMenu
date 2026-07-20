@@ -252,7 +252,7 @@
               .join("");
             const priceHtml =
               it.available === false
-                ? '<span class="sold-out-tag">Sold out</span>'
+                ? '<span class="sold-out-tag">Unavailable right now</span>'
                 : currency + escapeHtml(it.price);
             const descHtml = it.description
               ? `<p class="item-desc">${escapeHtml(it.description)}</p>`
