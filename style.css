@@ -168,7 +168,14 @@ body {
   padding-left: 12px;
   border-left: 3px solid var(--accent);
 }
-
+.section-heading:not(:first-child) {
+  margin-top: 36px;
+}
+.item {
+  margin-bottom: 24px;
+  padding: 0 6px;
+  margin-left: 14px; /* NEW: indent so it reads as "belonging to" the heading */
+}
 /* items WITHOUT a photo: compact list row */
 .item {
   margin-bottom: 24px;
@@ -249,11 +256,12 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
   background: #fff;
+  margin-left: 14px;
 }
 .item-photo {
   width: 100%;
   aspect-ratio: 16/10;
-  object-fit:contain;
+  object-fit: contain;
   display: block;
   background: var(--hairline);
 }
