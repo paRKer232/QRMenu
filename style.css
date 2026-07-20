@@ -114,10 +114,22 @@ body {
   overflow-x: auto;
   padding: 16px 16px 0;
   scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;  
-  scroll-snap-type: x proximity;        
-  mask-image: linear-gradient(to right, transparent 0, black 16px, black calc(100% - 24px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0, black 16px, black calc(100% - 24px), transparent 100%);
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 16px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 16px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
 }
 .tabs::-webkit-scrollbar {
   display: none;
@@ -156,6 +168,41 @@ body {
   background: var(--accent);
 }
 
+
+.tabs-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.tabs-wrap .tabs {
+  flex: 1;
+  min-width: 0; 
+}
+.tab-arrow {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline-strong);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin: 16px 4px 0;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+.tab-arrow:active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tab-arrow.hidden {
+  visibility: hidden; /* keeps layout stable instead of jumping when hidden */
+}
 /* ---------- MENU ---------- */
 .menu {
   background: var(--card);
@@ -340,6 +387,8 @@ body {
   max-width: 640px;
   max-height: 92vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   border-radius: 20px 20px 0 0;
   padding: 20px 20px calc(30px + env(safe-area-inset-bottom));
   transform: translateY(0);

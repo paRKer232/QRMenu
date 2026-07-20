@@ -20,7 +20,23 @@
         <div class="hero-rule"></div>
       </header>
 
-      <nav class="tabs" id="tabs"></nav>
+      <div class="tabs-wrap">
+        <button
+          class="tab-arrow tab-arrow-left"
+          id="tabsLeft"
+          aria-label="Scroll sections left"
+        >
+          ‹
+        </button>
+        <nav class="tabs" id="tabs"></nav>
+        <button
+          class="tab-arrow tab-arrow-right"
+          id="tabsRight"
+          aria-label="Scroll sections right"
+        >
+          ›
+        </button>
+      </div>
       <main class="menu" id="menu"></main>
 
       <button
@@ -278,7 +294,7 @@
           };
           tabs.appendChild(b);
         });
-
+        updateTabArrows();
         const menu = document.getElementById("menu");
         const sec = state.sections.find((s) => s.id === activeSection);
         if (!sec) {
@@ -336,17 +352,38 @@
 
       document.getElementById("adminToggle").onclick = () => {
         document.getElementById("overlay").classList.remove("hidden");
+        document.body.style.overflow = "hidden";
         renderAdmin();
       };
 
       function closeAdmin() {
         document.getElementById("overlay").classList.add("hidden");
+        document.body.style.overflow = "";
       }
 
       document.getElementById("overlay").addEventListener("click", (e) => {
         if (e.target.id === "overlay") closeAdmin();
       });
+      const tabsLeftBtn = document.getElementById("tabsLeft");
+      const tabsRightBtn = document.getElementById("tabsRight");
+      const tabsEl = document.getElementById("tabs");
 
+      tabsLeftBtn.onclick = () => {
+        tabsEl.scrollBy({ left: -140, behavior: "smooth" });
+      };
+      tabsRightBtn.onclick = () => {
+        tabsEl.scrollBy({ left: 140, behavior: "smooth" });
+      };
+
+      function updateTabArrows() {
+        const maxScroll = tabsEl.scrollWidth - tabsEl.clientWidth;
+        tabsLeftBtn.classList.toggle("hidden", tabsEl.scrollLeft <= 2);
+        tabsRightBtn.classList.toggle(
+          "hidden",
+          tabsEl.scrollLeft >= maxScroll - 2,
+        );
+      }
+      tabsEl.addEventListener("scroll", updateTabArrows);
       function renderAdmin() {
         const panel = document.getElementById("panel");
         if (!unlocked) {
