@@ -270,6 +270,11 @@
           b.onclick = () => {
             activeSection = sec.id;
             render();
+            b.scrollIntoView({
+              behavior: "smooth",
+              inline: "center",
+              block: "nearest",
+            });
           };
           tabs.appendChild(b);
         });
@@ -311,10 +316,13 @@
 
             if (it.image) {
               html += `
-        <div class="item has-image ${it.available === false ? "unavailable" : ""}">
-          <img class="item-photo" src="${escapeHtml(it.image)}" alt="" loading="lazy">
-          <div class="item-body">${rowHtml}</div>
-        </div>`;
+<div class="item has-image ${it.available === false ? "unavailable" : ""}">
+  <div class="item-photo-wrap">
+    <div class="item-photo-bg" style="background-image:url('${escapeHtml(it.image)}')"></div>
+    <img class="item-photo" src="${escapeHtml(it.image)}" alt="" loading="lazy">
+  </div>
+  <div class="item-body">${rowHtml}</div>
+</div>`;
             } else {
               html += `
         <div class="item ${it.available === false ? "unavailable" : ""}">${rowHtml}</div>`;
