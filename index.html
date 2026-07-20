@@ -100,6 +100,13 @@
         showToast("Admin access removed from this device");
       }
 
+      function confirmForgetDevice() {
+        const ok = confirm(
+          "Remove the gear/admin button from this device? You'll need the special link to bring it back.",
+        );
+        if (ok) forgetThisDevice();
+      }
+
       function defaultData() {
         return {
           business: {
@@ -346,6 +353,7 @@
           <input type="text" inputmode="numeric" maxlength="4" id="pinInput" placeholder="••••">
         </div>
         <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
+        <p class="url-note">Default PIN is 1234 — change it once you're in, under Business info.</p>
       </div>`;
           return;
         }
@@ -390,7 +398,7 @@
 
     <div class="divider"></div>
     <button class="btn btn-danger btn-block" onclick="lockAdmin()">Lock owner settings</button>
-    <button class="btn btn-danger btn-block" style="margin-top:8px;" onclick="if(confirm('Remove the gear/admin button from this device? You\\'ll need the special link to bring it back.')) forgetThisDevice();">Forget this device</button>
+    <button class="btn btn-danger btn-block" style="margin-top:8px;" onclick="confirmForgetDevice();">Forget this device</button>
   `;
 
         // theme dots
