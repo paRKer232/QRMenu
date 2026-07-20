@@ -260,7 +260,7 @@
           state.business.name || "Your Menu";
         document.getElementById("bizTagline").textContent =
           state.business.tagline || "";
-
+        document.title = state.business.name || "Digital Menu";
         const tabs = document.getElementById("tabs");
         tabs.innerHTML = "";
         state.sections.forEach((sec) => {
