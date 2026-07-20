@@ -284,6 +284,9 @@ body {
   z-index: 40;
   -webkit-tap-highlight-color: transparent;
 }
+.fab.hidden {
+  display: none;
+}
 
 /* ---------- OVERLAY / ADMIN ---------- */
 .overlay {

@@ -24,7 +24,7 @@
       <main class="menu" id="menu"></main>
 
       <button
-        class="fab"
+        class="fab hidden"
         id="adminToggle"
         title="Owner settings"
         aria-label="Owner settings"
@@ -62,6 +62,43 @@
         clay: "Clay",
         charcoal: "Charcoal",
       };
+
+      // Visiting the page with this hash once (e.g. yoursite.com/#owner) flags
+      // THIS device as an admin device so the gear button shows up from then on.
+      // Change ADMIN_HASH to something less guessable before you publish.
+      const ADMIN_HASH = "owner";
+      const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
+
+      function initAdminVisibility() {
+        if (window.location.hash === "#" + ADMIN_HASH) {
+          try {
+            localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+          } catch (e) {}
+          // Strip the hash from the address bar so it doesn't linger visibly.
+          history.replaceState(
+            null,
+            "",
+            window.location.pathname + window.location.search,
+          );
+        }
+        let isAdminDevice = false;
+        try {
+          isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
+        } catch (e) {}
+        const fab = document.getElementById("adminToggle");
+        if (fab) fab.classList.toggle("hidden", !isAdminDevice);
+      }
+
+      function forgetThisDevice() {
+        try {
+          localStorage.removeItem(ADMIN_DEVICE_KEY);
+        } catch (e) {}
+        closeAdmin();
+        unlocked = false;
+        sessionPin = null;
+        initAdminVisibility();
+        showToast("Admin access removed from this device");
+      }
 
       function defaultData() {
         return {
@@ -309,7 +346,6 @@
           <input type="text" inputmode="numeric" maxlength="4" id="pinInput" placeholder="••••">
         </div>
         <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
-        <p class="url-note">Default PIN is 1234 — change it once you're in, under Business info.</p>
       </div>`;
           return;
         }
@@ -354,6 +390,7 @@
 
     <div class="divider"></div>
     <button class="btn btn-danger btn-block" onclick="lockAdmin()">Lock owner settings</button>
+    <button class="btn btn-danger btn-block" style="margin-top:8px;" onclick="if(confirm('Remove the gear/admin button from this device? You\\'ll need the special link to bring it back.')) forgetThisDevice();">Forget this device</button>
   `;
 
         // theme dots
@@ -638,6 +675,7 @@
         renderAdmin();
       }
 
+      initAdminVisibility();
       loadData();
     </script>
   </body>
