@@ -723,7 +723,6 @@ textarea {
     min-height: auto;
     border-radius: 20px;
     box-shadow: var(--shadow-soft);
-    overflow: hidden;
     padding-bottom: 90px;
   }
   .hero {
