@@ -78,6 +78,8 @@
       sage: "Sage",
       clay: "Clay",
       charcoal: "Charcoal",
+      cherry: "Cherry",
+      amber: "Amber",
     };
 
     // Visiting the page with this hash once (e.g. yoursite.com/#owner) flags
@@ -214,6 +216,45 @@
     let qrObj = null;
     let sessionPin = null;
 
+    function fileToOptimizedDataUrl(file, maxDim = 900, quality = 0.82) {
+      const hasAlpha = file.type === "image/png" || file.type === "image/webp" || file.type === "image/gif";
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onerror = () => reject(new Error("decode failed"));
+          img.onload = () => {
+            let {
+              width,
+              height
+            } = img;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round(height * (maxDim / width));
+                width = maxDim;
+              } else {
+                width = Math.round(width * (maxDim / height));
+                height = maxDim;
+              }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(
+              hasAlpha ?
+              canvas.toDataURL("image/png") :
+              canvas.toDataURL("image/jpeg", quality),
+            );
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
     function uid(prefix) {
       return prefix + "_" + Math.random().toString(36).slice(2, 9);
     }
@@ -242,7 +283,35 @@
       render();
     }
 
-    async function saveData(showMsg) {
+    let dirty = false;
+
+    function markDirty() {
+      dirty = true;
+      updatePublishUI();
+      render();
+    }
+
+    function updatePublishUI() {
+      const btn = document.getElementById("publishLiveBtn");
+      const status = document.getElementById("publishStatus");
+      if (btn) {
+        btn.disabled = !dirty;
+        btn.textContent = dirty ? "Publish live" : "Published";
+      }
+      if (status) {
+        status.textContent = dirty ?
+          "You have unpublished changes" :
+          "Everything is published";
+        status.classList.toggle("dirty", dirty);
+      }
+    }
+
+    async function publishLive() {
+      const btn = document.getElementById("publishLiveBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Publishing…";
+      }
       try {
         const {
           data,
@@ -253,12 +322,20 @@
           p_data: state,
         });
         if (error || data !== true) throw new Error("save rejected");
-        if (showMsg) showToast("Saved");
+        dirty = false;
+        showToast("Published live");
       } catch (e) {
-        showToast("Could not save — check connection");
+        showToast("Could not publish — check connection");
       }
-      render();
+      updatePublishUI();
     }
+
+    window.addEventListener("beforeunload", (e) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    });
 
     function showToast(msg) {
       const t = document.getElementById("toast");
@@ -358,21 +435,15 @@
     document.getElementById("adminToggle").onclick = () => {
       document.getElementById("overlay").classList.remove("hidden");
       scrollLockY = window.scrollY;
-      document.body.style.position = "fixed";
-      document.body.style.top = `-${scrollLockY}px`;
-      document.body.style.left = "0";
-      document.body.style.right = "0";
-      document.body.style.width = "100%";
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
       renderAdmin();
     };
 
     function closeAdmin() {
       document.getElementById("overlay").classList.add("hidden");
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.left = "";
-      document.body.style.right = "";
-      document.body.style.width = "";
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
       window.scrollTo(0, scrollLockY);
     }
 
@@ -431,6 +502,11 @@
       <button class="icon-btn" onclick="closeAdmin()">✕</button>
     </div>
 
+    <div class="publish-bar">
+      <span class="publish-status${dirty ? " dirty" : ""}" id="publishStatus">${dirty ? "You have unpublished changes" : "Everything is published"}</span>
+      <button class="btn btn-primary btn-sm" id="publishLiveBtn" onclick="publishLive()" ${dirty ? "" : "disabled"}>${dirty ? "Publish live" : "Published"}</button>
+    </div>
+
     <div class="admin-section-card">
       <div class="section-heading" style="margin-bottom:10px;">Business info</div>
       <div class="field"><label>Name</label><input type="text" id="fName" value="${escapeHtml(state.business.name)}"></div>
@@ -443,7 +519,7 @@
         <label>Accent theme</label>
         <div class="theme-row" id="themeRow"></div>
       </div>
-      <button class="btn btn-primary btn-block" onclick="saveBusinessInfo()">Save business info</button>
+      <button class="btn btn-block" onclick="updatePin()">Update PIN</button>
     </div>
 
     <div class="admin-section-card">
@@ -468,6 +544,23 @@
     <button class="btn btn-danger btn-block" style="margin-top:8px;" onclick="confirmForgetDevice();">Forget this device</button>
   `;
 
+      document.getElementById("fName").onchange = (e) => {
+        state.business.name = e.target.value.trim() || "Your Menu";
+        markDirty();
+      };
+      document.getElementById("fTagline").onchange = (e) => {
+        state.business.tagline = e.target.value.trim();
+        markDirty();
+      };
+      document.getElementById("fCurrency").onchange = (e) => {
+        state.business.currency = e.target.value.trim() || "$";
+        markDirty();
+      };
+      document.getElementById("fUrl").onchange = (e) => {
+        state.publishedUrl = e.target.value.trim();
+        markDirty();
+      };
+
       // theme dots
       const themeRow = document.getElementById("themeRow");
       Object.keys(THEME_NAMES).forEach((key) => {
@@ -479,15 +572,15 @@
         dot.title = THEME_NAMES[key];
         dot.onclick = () => {
           state.business.accent = key;
-          render();
+          markDirty();
           renderAdmin();
-          if (state.publishedUrl) updateQr();
+          if (state.publishedUrl) renderQrPreview();
         };
         themeRow.appendChild(dot);
       });
 
       renderSectionsAdmin();
-      if (state.publishedUrl) updateQr();
+      if (state.publishedUrl) renderQrPreview();
     }
 
     async function tryUnlock() {
@@ -519,41 +612,35 @@
       renderAdmin();
     }
 
-    async function saveBusinessInfo() {
-      state.business.name =
-        document.getElementById("fName").value.trim() || "Your Menu";
-      state.business.tagline = document
-        .getElementById("fTagline")
-        .value.trim();
-      state.business.currency =
-        document.getElementById("fCurrency").value.trim() || "$";
+    async function updatePin() {
       const newPin = document.getElementById("fPin").value.trim();
-      if (newPin && newPin !== sessionPin) {
-        const {
-          data,
-          error
-        } = await supabaseClient.rpc("change_pin", {
-          p_slug: MENU_SLUG,
-          p_old_pin: sessionPin,
-          p_new_pin: newPin,
-        });
-        if (!error && data === true) {
-          sessionPin = newPin;
-          showToast("PIN updated");
-        } else showToast("Could not update PIN");
+      if (!newPin) {
+        showToast("Enter a new PIN first");
+        return;
       }
-      state.publishedUrl = document.getElementById("fUrl") ?
-        document.getElementById("fUrl").value.trim() :
-        state.publishedUrl;
-      saveData(true);
-      renderAdmin();
+      if (newPin === sessionPin) {
+        showToast("That's already the current PIN");
+        return;
+      }
+      const {
+        data,
+        error
+      } = await supabaseClient.rpc("change_pin", {
+        p_slug: MENU_SLUG,
+        p_old_pin: sessionPin,
+        p_new_pin: newPin,
+      });
+      if (!error && data === true) {
+        sessionPin = newPin;
+        showToast("PIN updated");
+      } else showToast("Could not update PIN");
     }
 
-    function updateQr() {
-      const url = document.getElementById("fUrl").value.trim();
-      state.publishedUrl = url;
+    function renderQrPreview() {
       const box = document.getElementById("qrcode");
+      if (!box) return;
       box.innerHTML = "";
+      const url = state.publishedUrl;
       if (!url) {
         box.innerHTML =
           '<p class="url-note">Add a URL above to generate a code.</p>';
@@ -572,7 +659,14 @@
       } catch (e) {
         box.innerHTML = '<p class="url-note">Could not generate QR code.</p>';
       }
-      saveData(false);
+    }
+
+    function updateQr() {
+      const url = document.getElementById("fUrl").value.trim();
+      const changed = url !== state.publishedUrl;
+      state.publishedUrl = url;
+      renderQrPreview();
+      if (changed) markDirty();
     }
 
     function renderSectionsAdmin() {
@@ -602,7 +696,7 @@
         el.onchange = () => {
           const sec = state.sections.find((s) => s.id === el.dataset.sid);
           sec.title = el.value.trim() || "Untitled";
-          saveData(true);
+          markDirty();
         };
       });
       wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
@@ -612,7 +706,7 @@
           );
           if (activeSection === el.dataset.sid)
             activeSection = state.sections[0] ? state.sections[0].id : null;
-          saveData(true);
+          markDirty();
           renderAdmin();
         };
       });
@@ -638,7 +732,7 @@
             tags: [],
             available: true,
           });
-          saveData(true);
+          markDirty();
           renderAdmin();
         };
       });
@@ -651,7 +745,7 @@
       const tmp = state.sections[idx];
       state.sections[idx] = state.sections[newIdx];
       state.sections[newIdx] = tmp;
-      saveData(true);
+      markDirty();
       renderAdmin();
     }
 
@@ -663,7 +757,19 @@
       <input type="text" value="${escapeHtml(item.name)}" data-field="name" placeholder="Item name">
       <input type="text" value="${escapeHtml(item.price)}" data-field="price" placeholder="Price" style="max-width:90px;">
     </div>
-    <div class="field"><input type="text" value="${escapeHtml(item.image || "")}" data-field="image" placeholder="Image URL (optional)"></div>
+    <div class="field">
+      <label>Image</label>
+      <div class="image-field-row">
+        <input type="text" value="${escapeHtml(item.image && !item.image.startsWith("data:") ? item.image : "")}" data-field="image" placeholder="Image URL (optional)">
+        <label class="btn btn-sm image-upload-btn">Upload
+          <input type="file" accept="image/*" data-field="imageFile" hidden>
+        </label>
+      </div>
+      <div class="image-preview-wrap" data-field="imagePreviewWrap" ${item.image ? "" : 'style="display:none;"'}>
+        <img class="image-preview" data-field="imagePreview" src="${escapeHtml(item.image || "")}" alt="">
+        <button type="button" class="btn btn-sm btn-danger" data-field="removeImage">Remove image</button>
+      </div>
+    </div>
     <div class="field"><textarea data-field="description" placeholder="Short description">${escapeHtml(item.description)}</textarea></div>
     <div class="tag-toggles"></div>
     <div class="item-card-foot">
@@ -674,6 +780,10 @@
       const nameInput = div.querySelector('[data-field="name"]');
       const priceInput = div.querySelector('[data-field="price"]');
       const imageInput = div.querySelector('[data-field="image"]');
+      const imageFileInput = div.querySelector('[data-field="imageFile"]');
+      const imagePreviewWrap = div.querySelector('[data-field="imagePreviewWrap"]');
+      const imagePreview = div.querySelector('[data-field="imagePreview"]');
+      const removeImageBtn = div.querySelector('[data-field="removeImage"]');
       const descInput = div.querySelector('[data-field="description"]');
       const availInput = div.querySelector('[data-field="available"]');
       const deleteBtn = div.querySelector('[data-field="delete"]');
@@ -698,7 +808,7 @@
           if (i > -1) cur.tags.splice(i, 1);
           else cur.tags.push(tagKey);
           chip.classList.toggle("on");
-          saveData(false);
+          markDirty();
         };
         tagWrap.appendChild(chip);
       });
@@ -707,41 +817,86 @@
         const cur = findItem();
         if (cur) {
           cur.name = nameInput.value.trim() || "Untitled item";
-          saveData(true);
+          markDirty();
         }
       };
       priceInput.onchange = () => {
         const cur = findItem();
         if (cur) {
           cur.price = priceInput.value.trim() || "0.00";
-          saveData(true);
+          markDirty();
         }
       };
+      function setPreview(url) {
+        if (url) {
+          imagePreview.src = url;
+          imagePreviewWrap.style.display = "";
+        } else {
+          imagePreview.src = "";
+          imagePreviewWrap.style.display = "none";
+        }
+      }
+
       imageInput.onchange = () => {
         const cur = findItem();
         if (cur) {
           cur.image = imageInput.value.trim();
-          saveData(true);
+          setPreview(cur.image);
+          markDirty();
+        }
+      };
+
+      imageFileInput.onchange = async () => {
+        const file = imageFileInput.files && imageFileInput.files[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          showToast("Please choose an image file");
+          imageFileInput.value = "";
+          return;
+        }
+        try {
+          const dataUrl = await fileToOptimizedDataUrl(file);
+          const cur = findItem();
+          if (cur) {
+            cur.image = dataUrl;
+            imageInput.value = "";
+            setPreview(dataUrl);
+            markDirty();
+            showToast("Image uploaded");
+          }
+        } catch (e) {
+          showToast("Could not process that image");
+        }
+        imageFileInput.value = "";
+      };
+
+      removeImageBtn.onclick = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.image = "";
+          imageInput.value = "";
+          setPreview("");
+          markDirty();
         }
       };
       descInput.onchange = () => {
         const cur = findItem();
         if (cur) {
           cur.description = descInput.value.trim();
-          saveData(true);
+          markDirty();
         }
       };
       availInput.onchange = () => {
         const cur = findItem();
         if (cur) {
           cur.available = availInput.checked;
-          saveData(true);
+          markDirty();
         }
       };
       deleteBtn.onclick = () => {
         const sec = state.sections.find((s) => s.id === sectionId);
         sec.items = sec.items.filter((i) => i.id !== item.id);
-        saveData(true);
+        markDirty();
         renderAdmin();
       };
 
@@ -756,7 +911,7 @@
       };
       state.sections.push(sec);
       if (!activeSection) activeSection = sec.id;
-      saveData(true);
+      markDirty();
       renderAdmin();
     }
 
