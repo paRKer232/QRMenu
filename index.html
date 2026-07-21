@@ -1,328 +1,331 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    />
-    <title>Digital Menu</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header class="hero">
-        <p class="eyebrow">Menu</p>
-        <h1 id="bizName">&nbsp;</h1>
-        <p class="tagline" id="bizTagline">&nbsp;</p>
-        <div class="hero-rule"></div>
-      </header>
 
-      <div class="tabs-wrap">
-        <button
-          class="tab-arrow tab-arrow-left"
-          id="tabsLeft"
-          aria-label="Scroll sections left"
-        >
-          ‹
-        </button>
-        <nav class="tabs" id="tabs"></nav>
-        <button
-          class="tab-arrow tab-arrow-right"
-          id="tabsRight"
-          aria-label="Scroll sections right"
-        >
-          ›
-        </button>
-      </div>
-      <main class="menu" id="menu"></main>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Digital Menu</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
 
-      <button
-        class="fab hidden"
-        id="adminToggle"
-        title="Owner settings"
-        aria-label="Owner settings"
-      >
-        ⚙
+<body>
+  <div id="app">
+    <header class="hero">
+      <p class="eyebrow">Menu</p>
+      <h1 id="bizName">&nbsp;</h1>
+      <p class="tagline" id="bizTagline">&nbsp;</p>
+      <div class="hero-rule"></div>
+    </header>
+
+    <div class="tabs-wrap">
+      <button class="tab-arrow tab-arrow-left" id="tabsLeft" aria-label="Scroll sections left">
+        ‹
       </button>
+      <nav class="tabs" id="tabs"></nav>
+      <button class="tab-arrow tab-arrow-right" id="tabsRight" aria-label="Scroll sections right">
+        ›
+      </button>
+    </div>
+    <main class="menu" id="menu"></main>
 
-      <div class="overlay hidden" id="overlay">
-        <div class="panel" id="panel"></div>
-      </div>
+    <button class="fab hidden" id="adminToggle" title="Owner settings" aria-label="Owner settings">
+      ⚙
+    </button>
 
-      <div class="toast hidden" id="toast"></div>
+    <div class="overlay hidden" id="overlay">
+      <div class="panel" id="panel"></div>
     </div>
 
-    <script>
-      const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
-      const SUPABASE_ANON_KEY =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
-      const MENU_SLUG = "cafe-aurora"; // unique per business — change this for each site you deploy
-      const supabaseClient = window.supabase.createClient(
-        SUPABASE_URL,
-        SUPABASE_ANON_KEY,
+    <div class="toast hidden" id="toast"></div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
+    const SUPABASE_ANON_KEY =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
+    const MENU_SLUG = "cafe-aurora"; // unique per business — change this for each site you deploy
+    const supabaseClient = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+    );
+    const TAG_META = {
+      veg: {
+        label: "V",
+        title: "Vegetarian"
+      },
+      vegan: {
+        label: "VG",
+        title: "Vegan"
+      },
+      gf: {
+        label: "GF",
+        title: "Gluten-free"
+      },
+      spicy: {
+        label: "🌶",
+        title: "Spicy"
+      },
+      new: {
+        label: "NEW",
+        title: "New"
+      },
+    };
+    const THEME_NAMES = {
+      navy: "Navy",
+      wine: "Wine",
+      sage: "Sage",
+      clay: "Clay",
+      charcoal: "Charcoal",
+    };
+
+    // Visiting the page with this hash once (e.g. yoursite.com/#owner) flags
+    // THIS device as an admin device so the gear button shows up from then on.
+    // Change ADMIN_HASH to something less guessable before you publish.
+    const ADMIN_HASH = "owner";
+    const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
+
+    function initAdminVisibility() {
+      if (window.location.hash === "#" + ADMIN_HASH) {
+        try {
+          localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+        } catch (e) {}
+        // Strip the hash from the address bar so it doesn't linger visibly.
+        history.replaceState(
+          null,
+          "",
+          window.location.pathname + window.location.search,
+        );
+      }
+      let isAdminDevice = false;
+      try {
+        isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
+      } catch (e) {}
+      const fab = document.getElementById("adminToggle");
+      if (fab) fab.classList.toggle("hidden", !isAdminDevice);
+    }
+
+    function forgetThisDevice() {
+      try {
+        localStorage.removeItem(ADMIN_DEVICE_KEY);
+      } catch (e) {}
+      closeAdmin();
+      unlocked = false;
+      sessionPin = null;
+      initAdminVisibility();
+      showToast("Admin access removed from this device");
+    }
+
+    function confirmForgetDevice() {
+      const ok = confirm(
+        "Remove the gear/admin button from this device? You'll need the special link to bring it back.",
       );
-      const TAG_META = {
-        veg: { label: "V", title: "Vegetarian" },
-        vegan: { label: "VG", title: "Vegan" },
-        gf: { label: "GF", title: "Gluten-free" },
-        spicy: { label: "🌶", title: "Spicy" },
-        new: { label: "NEW", title: "New" },
-      };
-      const THEME_NAMES = {
-        navy: "Navy",
-        wine: "Wine",
-        sage: "Sage",
-        clay: "Clay",
-        charcoal: "Charcoal",
-      };
+      if (ok) forgetThisDevice();
+    }
 
-      // Visiting the page with this hash once (e.g. yoursite.com/#owner) flags
-      // THIS device as an admin device so the gear button shows up from then on.
-      // Change ADMIN_HASH to something less guessable before you publish.
-      const ADMIN_HASH = "owner";
-      const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
-
-      function initAdminVisibility() {
-        if (window.location.hash === "#" + ADMIN_HASH) {
-          try {
-            localStorage.setItem(ADMIN_DEVICE_KEY, "1");
-          } catch (e) {}
-          // Strip the hash from the address bar so it doesn't linger visibly.
-          history.replaceState(
-            null,
-            "",
-            window.location.pathname + window.location.search,
-          );
-        }
-        let isAdminDevice = false;
-        try {
-          isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
-        } catch (e) {}
-        const fab = document.getElementById("adminToggle");
-        if (fab) fab.classList.toggle("hidden", !isAdminDevice);
-      }
-
-      function forgetThisDevice() {
-        try {
-          localStorage.removeItem(ADMIN_DEVICE_KEY);
-        } catch (e) {}
-        closeAdmin();
-        unlocked = false;
-        sessionPin = null;
-        initAdminVisibility();
-        showToast("Admin access removed from this device");
-      }
-
-      function confirmForgetDevice() {
-        const ok = confirm(
-          "Remove the gear/admin button from this device? You'll need the special link to bring it back.",
-        );
-        if (ok) forgetThisDevice();
-      }
-
-      function defaultData() {
-        return {
-          business: {
-            name: "Café Aurora",
-            tagline: "Slow mornings, honest coffee",
-            currency: "$",
-            accent: "sage",
+    function defaultData() {
+      return {
+        business: {
+          name: "Café Aurora",
+          tagline: "Slow mornings, honest coffee",
+          currency: "$",
+          accent: "sage",
+        },
+        publishedUrl: "",
+        sections: [{
+            id: "s1",
+            title: "Coffee",
+            items: [{
+                id: "i1",
+                name: "Espresso",
+                description: "Double shot, house blend",
+                price: "3.00",
+                tags: ["vegan"],
+                available: true,
+              },
+              {
+                id: "i2",
+                name: "Flat White",
+                description: "Espresso, steamed milk",
+                price: "4.50",
+                tags: [],
+                available: true,
+              },
+              {
+                id: "i3",
+                name: "Iced Matcha Latte",
+                description: "Ceremonial grade, oat milk",
+                price: "5.25",
+                tags: ["vegan", "new"],
+                available: true,
+              },
+            ],
           },
-          publishedUrl: "",
-          sections: [
-            {
-              id: "s1",
-              title: "Coffee",
-              items: [
-                {
-                  id: "i1",
-                  name: "Espresso",
-                  description: "Double shot, house blend",
-                  price: "3.00",
-                  tags: ["vegan"],
-                  available: true,
-                },
-                {
-                  id: "i2",
-                  name: "Flat White",
-                  description: "Espresso, steamed milk",
-                  price: "4.50",
-                  tags: [],
-                  available: true,
-                },
-                {
-                  id: "i3",
-                  name: "Iced Matcha Latte",
-                  description: "Ceremonial grade, oat milk",
-                  price: "5.25",
-                  tags: ["vegan", "new"],
-                  available: true,
-                },
-              ],
-            },
-            {
-              id: "s2",
-              title: "Breakfast",
-              items: [
-                {
-                  id: "i4",
-                  name: "Avocado Toast",
-                  description: "Sourdough, chili flake, lime",
-                  price: "8.00",
-                  tags: ["veg"],
-                  available: true,
-                },
-                {
-                  id: "i5",
-                  name: "Shakshuka",
-                  description: "Baked eggs, tomato, feta",
-                  price: "9.50",
-                  tags: ["gf"],
-                  available: true,
-                },
-              ],
-            },
-            {
-              id: "s3",
-              title: "Pastries",
-              items: [
-                {
-                  id: "i6",
-                  name: "Almond Croissant",
-                  description: "Baked fresh daily",
-                  price: "4.00",
-                  tags: ["veg"],
-                  available: true,
-                },
-                {
-                  id: "i7",
-                  name: "Banana Bread",
-                  description: "Walnut, brown butter",
-                  price: "3.75",
-                  tags: ["veg"],
-                  available: false,
-                },
-              ],
-            },
-          ],
-        };
-      }
+          {
+            id: "s2",
+            title: "Breakfast",
+            items: [{
+                id: "i4",
+                name: "Avocado Toast",
+                description: "Sourdough, chili flake, lime",
+                price: "8.00",
+                tags: ["veg"],
+                available: true,
+              },
+              {
+                id: "i5",
+                name: "Shakshuka",
+                description: "Baked eggs, tomato, feta",
+                price: "9.50",
+                tags: ["gf"],
+                available: true,
+              },
+            ],
+          },
+          {
+            id: "s3",
+            title: "Pastries",
+            items: [{
+                id: "i6",
+                name: "Almond Croissant",
+                description: "Baked fresh daily",
+                price: "4.00",
+                tags: ["veg"],
+                available: true,
+              },
+              {
+                id: "i7",
+                name: "Banana Bread",
+                description: "Walnut, brown butter",
+                price: "3.75",
+                tags: ["veg"],
+                available: false,
+              },
+            ],
+          },
+        ],
+      };
+    }
 
-      let state = null;
-      let activeSection = null;
-      let unlocked = false;
-      let qrObj = null;
-      let sessionPin = null;
+    let state = null;
+    let activeSection = null;
+    let unlocked = false;
+    let qrObj = null;
+    let sessionPin = null;
 
-      function uid(prefix) {
-        return prefix + "_" + Math.random().toString(36).slice(2, 9);
-      }
+    function uid(prefix) {
+      return prefix + "_" + Math.random().toString(36).slice(2, 9);
+    }
 
-      function escapeHtml(str) {
-        const d = document.createElement("div");
-        d.textContent = str == null ? "" : String(str);
-        return d.innerHTML;
-      }
+    function escapeHtml(str) {
+      const d = document.createElement("div");
+      d.textContent = str == null ? "" : String(str);
+      return d.innerHTML;
+    }
 
-      async function loadData() {
-        try {
-          const { data, error } = await supabaseClient.rpc("get_menu", {
-            p_slug: MENU_SLUG,
-          });
-          if (error) throw error;
-          state = data ? data : defaultData();
-        } catch (e) {
-          state = defaultData();
-        }
-        if (!state.sections) state.sections = [];
-        activeSection = state.sections[0] ? state.sections[0].id : null;
-        render();
-      }
-
-      async function saveData(showMsg) {
-        try {
-          const { data, error } = await supabaseClient.rpc("save_menu", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-            p_data: state,
-          });
-          if (error || data !== true) throw new Error("save rejected");
-          if (showMsg) showToast("Saved");
-        } catch (e) {
-          showToast("Could not save — check connection");
-        }
-        render();
-      }
-
-      function showToast(msg) {
-        const t = document.getElementById("toast");
-        t.textContent = msg;
-        t.classList.remove("hidden");
-        clearTimeout(showToast._t);
-        showToast._t = setTimeout(() => t.classList.add("hidden"), 1800);
-      }
-
-      /* ---------------- CUSTOMER VIEW ---------------- */
-
-      function render() {
-        document.body.setAttribute(
-          "data-theme",
-          state.business.accent || "sage",
-        );
-        document.getElementById("bizName").textContent =
-          state.business.name || "Your Menu";
-        document.getElementById("bizTagline").textContent =
-          state.business.tagline || "";
-        document.title = state.business.name || "Digital Menu";
-        const tabs = document.getElementById("tabs");
-        tabs.innerHTML = "";
-        state.sections.forEach((sec) => {
-          const b = document.createElement("button");
-          b.className = "tab" + (sec.id === activeSection ? " active" : "");
-          b.textContent = sec.title || "Untitled";
-          b.onclick = () => {
-            activeSection = sec.id;
-            render();
-            b.scrollIntoView({
-              behavior: "smooth",
-              inline: "center",
-              block: "nearest",
-            });
-          };
-          tabs.appendChild(b);
+    async function loadData() {
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("get_menu", {
+          p_slug: MENU_SLUG,
         });
-        updateTabArrows();
-        const menu = document.getElementById("menu");
-        const sec = state.sections.find((s) => s.id === activeSection);
-        if (!sec) {
-          menu.innerHTML =
-            '<p class="empty-state">No sections yet. Open owner settings to add your first category.</p>';
-          return;
-        }
-        const currency = state.business.currency || "$";
-        let html = `<h3 class="section-heading">${escapeHtml(sec.title)}</h3>`;
-        if (!sec.items || sec.items.length === 0) {
-          html += '<p class="empty-state">No items in this section yet.</p>';
-        } else {
-          sec.items.forEach((it) => {
-            const badges = (it.tags || [])
-              .map((t) =>
-                TAG_META[t]
-                  ? `<span class="badge" title="${TAG_META[t].title}">${TAG_META[t].label}</span>`
-                  : "",
-              )
-              .join("");
-            const priceHtml =
-              it.available === false
-                ? '<span class="sold-out-tag">Unavailable right now</span>'
-                : currency + escapeHtml(it.price);
-            const descHtml = it.description
-              ? `<p class="item-desc">${escapeHtml(it.description)}</p>`
-              : "";
-            const rowHtml = `
+        if (error) throw error;
+        state = data ? data : defaultData();
+      } catch (e) {
+        state = defaultData();
+      }
+      if (!state.sections) state.sections = [];
+      activeSection = state.sections[0] ? state.sections[0].id : null;
+      render();
+    }
+
+    async function saveData(showMsg) {
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("save_menu", {
+          p_slug: MENU_SLUG,
+          p_pin: sessionPin,
+          p_data: state,
+        });
+        if (error || data !== true) throw new Error("save rejected");
+        if (showMsg) showToast("Saved");
+      } catch (e) {
+        showToast("Could not save — check connection");
+      }
+      render();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.remove("hidden");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => t.classList.add("hidden"), 1800);
+    }
+
+    /* ---------------- CUSTOMER VIEW ---------------- */
+
+    function render() {
+      document.body.setAttribute(
+        "data-theme",
+        state.business.accent || "sage",
+      );
+      document.getElementById("bizName").textContent =
+        state.business.name || "Your Menu";
+      document.getElementById("bizTagline").textContent =
+        state.business.tagline || "";
+      document.title = state.business.name || "Digital Menu";
+      const tabs = document.getElementById("tabs");
+      tabs.innerHTML = "";
+      state.sections.forEach((sec) => {
+        const b = document.createElement("button");
+        b.className = "tab" + (sec.id === activeSection ? " active" : "");
+        b.textContent = sec.title || "Untitled";
+        b.onclick = () => {
+          activeSection = sec.id;
+          render();
+          b.scrollIntoView({
+            behavior: "smooth",
+            inline: "center",
+            block: "nearest",
+          });
+        };
+        tabs.appendChild(b);
+      });
+      updateTabArrows();
+      const menu = document.getElementById("menu");
+      const sec = state.sections.find((s) => s.id === activeSection);
+      if (!sec) {
+        menu.innerHTML =
+          '<p class="empty-state">No sections yet. Open owner settings to add your first category.</p>';
+        return;
+      }
+      const currency = state.business.currency || "$";
+      let html = `<h3 class="section-heading">${escapeHtml(sec.title)}</h3>`;
+      if (!sec.items || sec.items.length === 0) {
+        html += '<p class="empty-state">No items in this section yet.</p>';
+      } else {
+        sec.items.forEach((it) => {
+          const badges = (it.tags || [])
+            .map((t) =>
+              TAG_META[t] ?
+              `<span class="badge" title="${TAG_META[t].title}">${TAG_META[t].label}</span>` :
+              "",
+            )
+            .join("");
+          const priceHtml =
+            it.available === false ?
+            '<span class="sold-out-tag">Unavailable right now</span>' :
+            currency + escapeHtml(it.price);
+          const descHtml = it.description ?
+            `<p class="item-desc">${escapeHtml(it.description)}</p>` :
+            "";
+          const rowHtml = `
           <div class="item-row">
             <span class="item-name">${escapeHtml(it.name)}<span class="item-badges">${badges}</span></span>
             <span class="leader"></span>
@@ -330,8 +333,8 @@
           </div>
           ${descHtml}`;
 
-            if (it.image) {
-              html += `
+          if (it.image) {
+            html += `
 <div class="item has-image ${it.available === false ? "unavailable" : ""}">
   <div class="item-photo-wrap">
     <div class="item-photo-bg" style="background-image:url('${escapeHtml(it.image)}')"></div>
@@ -339,55 +342,74 @@
   </div>
   <div class="item-body">${rowHtml}</div>
 </div>`;
-            } else {
-              html += `
+          } else {
+            html += `
         <div class="item ${it.available === false ? "unavailable" : ""}">${rowHtml}</div>`;
-            }
-          });
-        }
-        menu.innerHTML = html;
+          }
+        });
       }
+      menu.innerHTML = html;
+    }
 
-      /* ---------------- ADMIN ---------------- */
+    /* ---------------- ADMIN ---------------- */
 
-      document.getElementById("adminToggle").onclick = () => {
-        document.getElementById("overlay").classList.remove("hidden");
-        document.body.style.overflow = "hidden";
-        renderAdmin();
-      };
+    let scrollLockY = 0;
 
-      function closeAdmin() {
-        document.getElementById("overlay").classList.add("hidden");
-        document.body.style.overflow = "";
-      }
+    document.getElementById("adminToggle").onclick = () => {
+      document.getElementById("overlay").classList.remove("hidden");
+      scrollLockY = window.scrollY;
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollLockY}px`;
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+      renderAdmin();
+    };
 
-      document.getElementById("overlay").addEventListener("click", (e) => {
-        if (e.target.id === "overlay") closeAdmin();
+    function closeAdmin() {
+      document.getElementById("overlay").classList.add("hidden");
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.width = "";
+      window.scrollTo(0, scrollLockY);
+    }
+
+    document.getElementById("overlay").addEventListener("click", (e) => {
+      if (e.target.id === "overlay") closeAdmin();
+    });
+    const tabsLeftBtn = document.getElementById("tabsLeft");
+    const tabsRightBtn = document.getElementById("tabsRight");
+    const tabsEl = document.getElementById("tabs");
+
+    tabsLeftBtn.onclick = () => {
+      tabsEl.scrollBy({
+        left: -140,
+        behavior: "smooth"
       });
-      const tabsLeftBtn = document.getElementById("tabsLeft");
-      const tabsRightBtn = document.getElementById("tabsRight");
-      const tabsEl = document.getElementById("tabs");
+    };
+    tabsRightBtn.onclick = () => {
+      tabsEl.scrollBy({
+        left: 140,
+        behavior: "smooth"
+      });
+    };
 
-      tabsLeftBtn.onclick = () => {
-        tabsEl.scrollBy({ left: -140, behavior: "smooth" });
-      };
-      tabsRightBtn.onclick = () => {
-        tabsEl.scrollBy({ left: 140, behavior: "smooth" });
-      };
+    function updateTabArrows() {
+      const maxScroll = tabsEl.scrollWidth - tabsEl.clientWidth;
+      tabsLeftBtn.classList.toggle("hidden", tabsEl.scrollLeft <= 2);
+      tabsRightBtn.classList.toggle(
+        "hidden",
+        tabsEl.scrollLeft >= maxScroll - 2,
+      );
+    }
+    tabsEl.addEventListener("scroll", updateTabArrows);
 
-      function updateTabArrows() {
-        const maxScroll = tabsEl.scrollWidth - tabsEl.clientWidth;
-        tabsLeftBtn.classList.toggle("hidden", tabsEl.scrollLeft <= 2);
-        tabsRightBtn.classList.toggle(
-          "hidden",
-          tabsEl.scrollLeft >= maxScroll - 2,
-        );
-      }
-      tabsEl.addEventListener("scroll", updateTabArrows);
-      function renderAdmin() {
-        const panel = document.getElementById("panel");
-        if (!unlocked) {
-          panel.innerHTML = `
+    function renderAdmin() {
+      const panel = document.getElementById("panel");
+      if (!unlocked) {
+        panel.innerHTML = `
       <div class="panel-header">
         <h2>Owner access</h2>
         <button class="icon-btn" onclick="closeAdmin()">✕</button>
@@ -400,10 +422,10 @@
         <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
         <p class="url-note">Default PIN is 1234 — change it once you're in, under Business info.</p>
       </div>`;
-          return;
-        }
+        return;
+      }
 
-        panel.innerHTML = `
+      panel.innerHTML = `
     <div class="panel-header">
       <h2>Edit menu</h2>
       <button class="icon-btn" onclick="closeAdmin()">✕</button>
@@ -446,114 +468,120 @@
     <button class="btn btn-danger btn-block" style="margin-top:8px;" onclick="confirmForgetDevice();">Forget this device</button>
   `;
 
-        // theme dots
-        const themeRow = document.getElementById("themeRow");
-        Object.keys(THEME_NAMES).forEach((key) => {
-          const dot = document.createElement("div");
-          dot.className =
-            "theme-dot " +
-            key +
-            (state.business.accent === key ? " selected" : "");
-          dot.title = THEME_NAMES[key];
-          dot.onclick = () => {
-            state.business.accent = key;
-            render();
-            renderAdmin();
-            if (state.publishedUrl) updateQr();
-          };
-          themeRow.appendChild(dot);
+      // theme dots
+      const themeRow = document.getElementById("themeRow");
+      Object.keys(THEME_NAMES).forEach((key) => {
+        const dot = document.createElement("div");
+        dot.className =
+          "theme-dot " +
+          key +
+          (state.business.accent === key ? " selected" : "");
+        dot.title = THEME_NAMES[key];
+        dot.onclick = () => {
+          state.business.accent = key;
+          render();
+          renderAdmin();
+          if (state.publishedUrl) updateQr();
+        };
+        themeRow.appendChild(dot);
+      });
+
+      renderSectionsAdmin();
+      if (state.publishedUrl) updateQr();
+    }
+
+    async function tryUnlock() {
+      const val = document.getElementById("pinInput").value.trim();
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("check_pin", {
+          p_slug: MENU_SLUG,
+          p_pin: val,
         });
-
-        renderSectionsAdmin();
-        if (state.publishedUrl) updateQr();
-      }
-
-      async function tryUnlock() {
-        const val = document.getElementById("pinInput").value.trim();
-        try {
-          const { data, error } = await supabaseClient.rpc("check_pin", {
-            p_slug: MENU_SLUG,
-            p_pin: val,
-          });
-          if (error) throw error;
-          if (data === true) {
-            sessionPin = val;
-            unlocked = true;
-            renderAdmin();
-          } else {
-            showToast("Incorrect PIN");
-          }
-        } catch (e) {
-          showToast("Could not verify PIN — check connection");
+        if (error) throw error;
+        if (data === true) {
+          sessionPin = val;
+          unlocked = true;
+          renderAdmin();
+        } else {
+          showToast("Incorrect PIN");
         }
+      } catch (e) {
+        showToast("Could not verify PIN — check connection");
       }
-      function lockAdmin() {
-        unlocked = false;
-        sessionPin = null;
-        renderAdmin();
-      }
+    }
 
-      async function saveBusinessInfo() {
-        state.business.name =
-          document.getElementById("fName").value.trim() || "Your Menu";
-        state.business.tagline = document
-          .getElementById("fTagline")
-          .value.trim();
-        state.business.currency =
-          document.getElementById("fCurrency").value.trim() || "$";
-        const newPin = document.getElementById("fPin").value.trim();
-        if (newPin && newPin !== sessionPin) {
-          const { data, error } = await supabaseClient.rpc("change_pin", {
-            p_slug: MENU_SLUG,
-            p_old_pin: sessionPin,
-            p_new_pin: newPin,
-          });
-          if (!error && data === true) {
-            sessionPin = newPin;
-            showToast("PIN updated");
-          } else showToast("Could not update PIN");
-        }
-        state.publishedUrl = document.getElementById("fUrl")
-          ? document.getElementById("fUrl").value.trim()
-          : state.publishedUrl;
-        saveData(true);
-        renderAdmin();
-      }
+    function lockAdmin() {
+      unlocked = false;
+      sessionPin = null;
+      renderAdmin();
+    }
 
-      function updateQr() {
-        const url = document.getElementById("fUrl").value.trim();
-        state.publishedUrl = url;
-        const box = document.getElementById("qrcode");
-        box.innerHTML = "";
-        if (!url) {
-          box.innerHTML =
-            '<p class="url-note">Add a URL above to generate a code.</p>';
-          return;
-        }
-        try {
-          new QRCode(box, {
-            text: url,
-            width: 170,
-            height: 170,
-            colorDark:
-              getComputedStyle(document.body)
-                .getPropertyValue("--accent")
-                .trim() || "#000000",
-            colorLight: "#FBF8F1",
-          });
-        } catch (e) {
-          box.innerHTML = '<p class="url-note">Could not generate QR code.</p>';
-        }
-        saveData(false);
+    async function saveBusinessInfo() {
+      state.business.name =
+        document.getElementById("fName").value.trim() || "Your Menu";
+      state.business.tagline = document
+        .getElementById("fTagline")
+        .value.trim();
+      state.business.currency =
+        document.getElementById("fCurrency").value.trim() || "$";
+      const newPin = document.getElementById("fPin").value.trim();
+      if (newPin && newPin !== sessionPin) {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("change_pin", {
+          p_slug: MENU_SLUG,
+          p_old_pin: sessionPin,
+          p_new_pin: newPin,
+        });
+        if (!error && data === true) {
+          sessionPin = newPin;
+          showToast("PIN updated");
+        } else showToast("Could not update PIN");
       }
+      state.publishedUrl = document.getElementById("fUrl") ?
+        document.getElementById("fUrl").value.trim() :
+        state.publishedUrl;
+      saveData(true);
+      renderAdmin();
+    }
 
-      function renderSectionsAdmin() {
-        const wrap = document.getElementById("sectionsAdmin");
-        wrap.innerHTML = "";
-        state.sections.forEach((sec, sIdx) => {
-          const card = document.createElement("div");
-          card.className = "admin-section-card";
-          card.innerHTML = `
+    function updateQr() {
+      const url = document.getElementById("fUrl").value.trim();
+      state.publishedUrl = url;
+      const box = document.getElementById("qrcode");
+      box.innerHTML = "";
+      if (!url) {
+        box.innerHTML =
+          '<p class="url-note">Add a URL above to generate a code.</p>';
+        return;
+      }
+      try {
+        new QRCode(box, {
+          text: url,
+          width: 170,
+          height: 170,
+          colorDark: getComputedStyle(document.body)
+            .getPropertyValue("--accent")
+            .trim() || "#000000",
+          colorLight: "#FBF8F1",
+        });
+      } catch (e) {
+        box.innerHTML = '<p class="url-note">Could not generate QR code.</p>';
+      }
+      saveData(false);
+    }
+
+    function renderSectionsAdmin() {
+      const wrap = document.getElementById("sectionsAdmin");
+      wrap.innerHTML = "";
+      state.sections.forEach((sec, sIdx) => {
+        const card = document.createElement("div");
+        card.className = "admin-section-card";
+        card.innerHTML = `
       <div class="admin-section-card-head">
         <input type="text" value="${escapeHtml(sec.title)}" data-role="sectionTitle" data-sid="${sec.id}">
         <button class="btn btn-sm" data-role="moveUp" data-sid="${sec.id}" title="Move up">↑</button>
@@ -563,74 +591,74 @@
       <div data-role="itemsWrap" data-sid="${sec.id}"></div>
       <button class="btn btn-sm" data-role="addItem" data-sid="${sec.id}">+ Add item</button>
     `;
-          wrap.appendChild(card);
-          const itemsWrap = card.querySelector('[data-role="itemsWrap"]');
-          (sec.items || []).forEach((it) => {
-            itemsWrap.appendChild(buildItemCard(sec.id, it));
+        wrap.appendChild(card);
+        const itemsWrap = card.querySelector('[data-role="itemsWrap"]');
+        (sec.items || []).forEach((it) => {
+          itemsWrap.appendChild(buildItemCard(sec.id, it));
+        });
+      });
+
+      wrap.querySelectorAll('[data-role="sectionTitle"]').forEach((el) => {
+        el.onchange = () => {
+          const sec = state.sections.find((s) => s.id === el.dataset.sid);
+          sec.title = el.value.trim() || "Untitled";
+          saveData(true);
+        };
+      });
+      wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
+        el.onclick = () => {
+          state.sections = state.sections.filter(
+            (s) => s.id !== el.dataset.sid,
+          );
+          if (activeSection === el.dataset.sid)
+            activeSection = state.sections[0] ? state.sections[0].id : null;
+          saveData(true);
+          renderAdmin();
+        };
+      });
+      wrap.querySelectorAll('[data-role="moveUp"]').forEach((el) => {
+        el.onclick = () => {
+          moveSection(el.dataset.sid, -1);
+        };
+      });
+      wrap.querySelectorAll('[data-role="moveDown"]').forEach((el) => {
+        el.onclick = () => {
+          moveSection(el.dataset.sid, 1);
+        };
+      });
+      wrap.querySelectorAll('[data-role="addItem"]').forEach((el) => {
+        el.onclick = () => {
+          const sec = state.sections.find((s) => s.id === el.dataset.sid);
+          sec.items = sec.items || [];
+          sec.items.push({
+            id: uid("i"),
+            name: "New item",
+            description: "",
+            price: "0.00",
+            tags: [],
+            available: true,
           });
-        });
+          saveData(true);
+          renderAdmin();
+        };
+      });
+    }
 
-        wrap.querySelectorAll('[data-role="sectionTitle"]').forEach((el) => {
-          el.onchange = () => {
-            const sec = state.sections.find((s) => s.id === el.dataset.sid);
-            sec.title = el.value.trim() || "Untitled";
-            saveData(true);
-          };
-        });
-        wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
-          el.onclick = () => {
-            state.sections = state.sections.filter(
-              (s) => s.id !== el.dataset.sid,
-            );
-            if (activeSection === el.dataset.sid)
-              activeSection = state.sections[0] ? state.sections[0].id : null;
-            saveData(true);
-            renderAdmin();
-          };
-        });
-        wrap.querySelectorAll('[data-role="moveUp"]').forEach((el) => {
-          el.onclick = () => {
-            moveSection(el.dataset.sid, -1);
-          };
-        });
-        wrap.querySelectorAll('[data-role="moveDown"]').forEach((el) => {
-          el.onclick = () => {
-            moveSection(el.dataset.sid, 1);
-          };
-        });
-        wrap.querySelectorAll('[data-role="addItem"]').forEach((el) => {
-          el.onclick = () => {
-            const sec = state.sections.find((s) => s.id === el.dataset.sid);
-            sec.items = sec.items || [];
-            sec.items.push({
-              id: uid("i"),
-              name: "New item",
-              description: "",
-              price: "0.00",
-              tags: [],
-              available: true,
-            });
-            saveData(true);
-            renderAdmin();
-          };
-        });
-      }
+    function moveSection(id, dir) {
+      const idx = state.sections.findIndex((s) => s.id === id);
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= state.sections.length) return;
+      const tmp = state.sections[idx];
+      state.sections[idx] = state.sections[newIdx];
+      state.sections[newIdx] = tmp;
+      saveData(true);
+      renderAdmin();
+    }
 
-      function moveSection(id, dir) {
-        const idx = state.sections.findIndex((s) => s.id === id);
-        const newIdx = idx + dir;
-        if (newIdx < 0 || newIdx >= state.sections.length) return;
-        const tmp = state.sections[idx];
-        state.sections[idx] = state.sections[newIdx];
-        state.sections[newIdx] = tmp;
-        saveData(true);
-        renderAdmin();
-      }
-
-      function buildItemCard(sectionId, item) {
-        const div = document.createElement("div");
-        div.className = "admin-item-card";
-        div.innerHTML = `
+    function buildItemCard(sectionId, item) {
+      const div = document.createElement("div");
+      div.className = "admin-item-card";
+      div.innerHTML = `
     <div class="row">
       <input type="text" value="${escapeHtml(item.name)}" data-field="name" placeholder="Item name">
       <input type="text" value="${escapeHtml(item.price)}" data-field="price" placeholder="Price" style="max-width:90px;">
@@ -643,93 +671,98 @@
       <button class="btn btn-sm btn-danger" data-field="delete">Delete item</button>
     </div>
   `;
-        const nameInput = div.querySelector('[data-field="name"]');
-        const priceInput = div.querySelector('[data-field="price"]');
-        const imageInput = div.querySelector('[data-field="image"]');
-        const descInput = div.querySelector('[data-field="description"]');
-        const availInput = div.querySelector('[data-field="available"]');
-        const deleteBtn = div.querySelector('[data-field="delete"]');
-        const tagWrap = div.querySelector(".tag-toggles");
+      const nameInput = div.querySelector('[data-field="name"]');
+      const priceInput = div.querySelector('[data-field="price"]');
+      const imageInput = div.querySelector('[data-field="image"]');
+      const descInput = div.querySelector('[data-field="description"]');
+      const availInput = div.querySelector('[data-field="available"]');
+      const deleteBtn = div.querySelector('[data-field="delete"]');
+      const tagWrap = div.querySelector(".tag-toggles");
 
-        function findItem() {
-          const sec = state.sections.find((s) => s.id === sectionId);
-          return sec ? sec.items.find((i) => i.id === item.id) : null;
-        }
-
-        Object.keys(TAG_META).forEach((tagKey) => {
-          const chip = document.createElement("span");
-          chip.className =
-            "tag-chip" + ((item.tags || []).includes(tagKey) ? " on" : "");
-          chip.textContent = TAG_META[tagKey].label;
-          chip.title = TAG_META[tagKey].title;
-          chip.onclick = () => {
-            const cur = findItem();
-            if (!cur) return;
-            cur.tags = cur.tags || [];
-            const i = cur.tags.indexOf(tagKey);
-            if (i > -1) cur.tags.splice(i, 1);
-            else cur.tags.push(tagKey);
-            chip.classList.toggle("on");
-            saveData(false);
-          };
-          tagWrap.appendChild(chip);
-        });
-
-        nameInput.onchange = () => {
-          const cur = findItem();
-          if (cur) {
-            cur.name = nameInput.value.trim() || "Untitled item";
-            saveData(true);
-          }
-        };
-        priceInput.onchange = () => {
-          const cur = findItem();
-          if (cur) {
-            cur.price = priceInput.value.trim() || "0.00";
-            saveData(true);
-          }
-        };
-        imageInput.onchange = () => {
-          const cur = findItem();
-          if (cur) {
-            cur.image = imageInput.value.trim();
-            saveData(true);
-          }
-        };
-        descInput.onchange = () => {
-          const cur = findItem();
-          if (cur) {
-            cur.description = descInput.value.trim();
-            saveData(true);
-          }
-        };
-        availInput.onchange = () => {
-          const cur = findItem();
-          if (cur) {
-            cur.available = availInput.checked;
-            saveData(true);
-          }
-        };
-        deleteBtn.onclick = () => {
-          const sec = state.sections.find((s) => s.id === sectionId);
-          sec.items = sec.items.filter((i) => i.id !== item.id);
-          saveData(true);
-          renderAdmin();
-        };
-
-        return div;
+      function findItem() {
+        const sec = state.sections.find((s) => s.id === sectionId);
+        return sec ? sec.items.find((i) => i.id === item.id) : null;
       }
 
-      function addSection() {
-        const sec = { id: uid("s"), title: "New section", items: [] };
-        state.sections.push(sec);
-        if (!activeSection) activeSection = sec.id;
+      Object.keys(TAG_META).forEach((tagKey) => {
+        const chip = document.createElement("span");
+        chip.className =
+          "tag-chip" + ((item.tags || []).includes(tagKey) ? " on" : "");
+        chip.textContent = TAG_META[tagKey].label;
+        chip.title = TAG_META[tagKey].title;
+        chip.onclick = () => {
+          const cur = findItem();
+          if (!cur) return;
+          cur.tags = cur.tags || [];
+          const i = cur.tags.indexOf(tagKey);
+          if (i > -1) cur.tags.splice(i, 1);
+          else cur.tags.push(tagKey);
+          chip.classList.toggle("on");
+          saveData(false);
+        };
+        tagWrap.appendChild(chip);
+      });
+
+      nameInput.onchange = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.name = nameInput.value.trim() || "Untitled item";
+          saveData(true);
+        }
+      };
+      priceInput.onchange = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.price = priceInput.value.trim() || "0.00";
+          saveData(true);
+        }
+      };
+      imageInput.onchange = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.image = imageInput.value.trim();
+          saveData(true);
+        }
+      };
+      descInput.onchange = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.description = descInput.value.trim();
+          saveData(true);
+        }
+      };
+      availInput.onchange = () => {
+        const cur = findItem();
+        if (cur) {
+          cur.available = availInput.checked;
+          saveData(true);
+        }
+      };
+      deleteBtn.onclick = () => {
+        const sec = state.sections.find((s) => s.id === sectionId);
+        sec.items = sec.items.filter((i) => i.id !== item.id);
         saveData(true);
         renderAdmin();
-      }
+      };
 
-      initAdminVisibility();
-      loadData();
-    </script>
-  </body>
+      return div;
+    }
+
+    function addSection() {
+      const sec = {
+        id: uid("s"),
+        title: "New section",
+        items: []
+      };
+      state.sections.push(sec);
+      if (!activeSection) activeSection = sec.id;
+      saveData(true);
+      renderAdmin();
+    }
+
+    initAdminVisibility();
+    loadData();
+  </script>
+</body>
+
 </html>
