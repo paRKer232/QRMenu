@@ -49,14 +49,14 @@ body[data-theme="charcoal"] {
 body[data-theme="cherry"] {
   --accent: #c01d00;
   --accent-soft: rgba(248, 113, 113, 0.18);
-  --accent-ink: #310808; 
-  --ink: #fdad01; 
+  --accent-ink: #310808;
+  --ink: #fdad01;
 }
 body[data-theme="amber"] {
   --accent: #fbbf24;
   --accent-soft: rgba(251, 191, 36, 0.18);
   --accent-ink: #ffffff;
-  --ink: #ffffff; 
+  --ink: #ffffff;
 }
 * {
   box-sizing: border-box;
@@ -120,9 +120,27 @@ body::before {
   max-width: 640px;
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   z-index: 1;
   padding-bottom: calc(90px + env(safe-area-inset-bottom));
+  /* stays invisible until JS marks it ready, right after the real
+     theme/data has been applied — avoids the sage flash on load */
+  opacity: 0;
+  transform: translateY(-16px);
+}
+#app.ready {
+  animation: pageDropIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes pageDropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ---------- HERO ---------- */
@@ -430,7 +448,11 @@ body::before {
   width: 100%;
   aspect-ratio: 16/10;
   overflow: hidden;
-  background: radial-gradient(ellipse at center, var(--card-elevated), var(--bg-2));
+  background: radial-gradient(
+    ellipse at center,
+    var(--card-elevated),
+    var(--bg-2)
+  );
 }
 .item-photo-wrap::after {
   content: "";
@@ -506,7 +528,9 @@ body::before {
   justify-content: center;
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.25s ease, visibility 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s ease;
 }
 .overlay.hidden {
   opacity: 0;

@@ -281,6 +281,7 @@
       if (!state.sections) state.sections = [];
       activeSection = state.sections[0] ? state.sections[0].id : null;
       render();
+      document.getElementById("app").classList.add("ready");
     }
 
     let dirty = false;
