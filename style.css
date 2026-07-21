@@ -42,7 +42,7 @@ body[data-theme="clay"] {
   --accent-ink: #ffffff; /* Crisp white text */
 }
 body[data-theme="charcoal"] {
-  --accent: #e4e4e7;
+  --accent: #c4c4c4;
   --accent-soft: rgba(228, 228, 231, 0.18);
   --accent-ink: #18181b; /* Dark text for light charcoal/gray pill */
 }
@@ -123,13 +123,18 @@ body::before {
   min-height: 100dvh;
   position: relative;
   z-index: 1;
-  padding-bottom: calc(90px + env(safe-area-inset-bottom));
-  /* stays invisible until JS marks it ready, right after the real
-     theme/data has been applied — avoids the sage flash on load */
+  border-bottom: 1px solid var(--hairline);
+}
+
+.hero,
+.tabs-wrap,
+.menu {
   opacity: 0;
   transform: translateY(-16px);
 }
-#app.ready {
+#app.ready .hero,
+#app.ready .tabs-wrap,
+#app.ready .menu {
   animation: pageDropIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 @keyframes pageDropIn {
@@ -142,7 +147,6 @@ body::before {
     transform: translateY(0);
   }
 }
-
 /* ---------- HERO ---------- */
 .hero {
   padding: 56px 24px 34px;
@@ -202,6 +206,11 @@ body::before {
   letter-spacing: -0.01em;
   word-break: break-word;
   color: var(--ink);
+  text-shadow:
+    0 0 8px var(--accent),
+    0 0 20px var(--accent-soft),
+    0 0 40px var(--accent-soft),
+    0 0 70px var(--accent-soft);
 }
 .hero .tagline {
   font-family: "Sora", sans-serif;
@@ -340,7 +349,8 @@ body::before {
 .menu {
   background: var(--card);
   border-top: 1px solid var(--hairline);
-  padding: 26px 16px 44px;
+  border-bottom: 1px solid var(--hairline);
+  padding: 26px 16px calc(15px + env(safe-area-inset-bottom));
   min-height: 200px;
   box-shadow: var(--shadow-soft);
 }
@@ -354,6 +364,7 @@ body::before {
   margin: 0 0 18px;
   padding-left: 12px;
   border-left: 3px solid var(--accent);
+  text-shadow: 0 0 8px var(--accent);
 }
 .section-heading:not(:first-child) {
   margin-top: 36px;
@@ -378,6 +389,7 @@ body::before {
   flex-shrink: 0;
   max-width: 62%;
   color: var(--ink);
+  text-shadow: 0 0 10px var(--accent);
 }
 .leader {
   flex: 1;
@@ -678,7 +690,7 @@ textarea {
   background: #fb923c;
 }
 .theme-dot.charcoal {
-  background: #e4e4e7;
+  background: #c4c4c4;
 }
 .theme-dot.cherry {
   background: #c01d00;
@@ -827,6 +839,13 @@ textarea {
   cursor: pointer;
   color: var(--muted);
   background: var(--bg);
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+.tag-chip:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-soft);
 }
 .tag-chip.on {
   background: var(--accent);
@@ -901,8 +920,17 @@ textarea {
 .toast.hidden {
   display: none;
 }
+@media (hover: none) or (pointer: coarse) {
+  .tag-chip:active {
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-soft);
+  }
+}
 
 @media (min-width: 640px) {
+  .menu {
+    border-radius: 0 0 20px 20px;
+  }
   body {
     padding: 40px 20px;
   }
@@ -911,7 +939,7 @@ textarea {
     border-radius: 20px;
     border: 1px solid var(--hairline-strong);
     box-shadow: var(--shadow-soft);
-    padding-bottom: 90px;
+    border-bottom: 1px solid var(--hairline);
   }
   .hero {
     border-radius: 20px 20px 0 0;
