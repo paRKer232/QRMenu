@@ -357,24 +357,46 @@
       document.getElementById("bizTagline").textContent =
         state.business.tagline || "";
       document.title = state.business.name || "Digital Menu";
+      renderTabs();
+      renderMenu();
+    }
+
+    function renderTabs() {
       const tabs = document.getElementById("tabs");
       tabs.innerHTML = "";
       state.sections.forEach((sec) => {
         const b = document.createElement("button");
         b.className = "tab" + (sec.id === activeSection ? " active" : "");
         b.textContent = sec.title || "Untitled";
-        b.onclick = () => {
-          activeSection = sec.id;
-          render();
-          b.scrollIntoView({
-            behavior: "smooth",
-            inline: "center",
-            block: "nearest",
-          });
-        };
+        b.dataset.sid = sec.id;
+        b.onclick = () => selectSection(sec.id);
         tabs.appendChild(b);
       });
       updateTabArrows();
+    }
+
+    function selectSection(id) {
+      activeSection = id;
+      // Only toggle the active class instead of tearing down and
+      // rebuilding every tab button — rebuilding on every tap was what
+      // made the tabs feel janky, and it also meant the button being
+      // tapped had already been removed from the DOM by the time we
+      // tried to scroll it into view, so that scroll silently failed.
+      document.querySelectorAll("#tabs .tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.sid === id);
+      });
+      renderMenu();
+      const activeBtn = document.querySelector("#tabs .tab.active");
+      if (activeBtn) {
+        activeBtn.scrollIntoView({
+          behavior: "smooth",
+          inline: "center",
+          block: "nearest",
+        });
+      }
+    }
+
+    function renderMenu() {
       const menu = document.getElementById("menu");
       const sec = state.sections.find((s) => s.id === activeSection);
       if (!sec) {
