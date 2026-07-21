@@ -215,6 +215,7 @@ body::before {
 .hero .tagline {
   font-family: "Sora", sans-serif;
   font-weight: 500;
+  font-style: italic;
   color: var(--muted);
   font-size: 15px;
   margin: 0;
@@ -409,6 +410,7 @@ body::before {
 .item-desc {
   color: var(--muted);
   font-size: 14.5px;
+  font-style: italic;
   margin: 5px 0 0;
   line-height: 1.5;
 }
@@ -943,5 +945,33 @@ textarea {
   }
   .hero {
     border-radius: 20px 20px 0 0;
+  }
+}
+@media (max-width: 639px) {
+  
+  .hero h1 {
+    font-size: clamp(26px, 8vw, 34px);
+    text-shadow:
+      0 0 5px var(--accent),
+      0 0 12px var(--accent-soft),
+      0 0 24px var(--accent-soft);
+  }
+  .section-heading {
+    font-size: 11.5px;
+    text-shadow: 0 0 4px var(--accent-soft);
+  }
+  .item-name {
+    font-size: 16px;
+    text-shadow: 0 0 5px var(--accent-soft);
+  }
+
+  .panel-header h2 {
+    font-size: 18px;
+  }
+  .admin-section-card-head input {
+    font-size: 14px;
+  }
+  .field label {
+    font-size: 10.5px;
   }
 }
