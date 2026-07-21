@@ -972,13 +972,13 @@ textarea {
   }
   .section-heading {
     font-size: 11.5px;
-   text-shadow: 0 0 3px var(--accent),
-      0 0 8px var(--accent-soft);
+   text-shadow: 0 0 4px var(--accent),
+      0 0 4px var(--accent-soft);
   }
   .item-name {
     font-size: 16px;
-    text-shadow: 0 0 3px var(--accent),
-      0 0 8px var(--accent-soft);
+    text-shadow: 0 0 4px var(--accent),
+      0 0 4px var(--accent-soft);
   }
 
   .panel-header h2 {
