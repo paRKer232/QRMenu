@@ -556,8 +556,8 @@ body::before {
   background: rgba(32, 34, 39, 0.98);
   width: 100%;
   max-width: 640px;
-  max-height: 100vh;
-  max-height: 100dvh;
+  max-height: 120vh;
+  max-height: 120dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
