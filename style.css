@@ -42,7 +42,7 @@ body[data-theme="clay"] {
   --accent-ink: #ffffff; /* Crisp white text */
 }
 body[data-theme="charcoal"] {
-  --accent: #bdbdbd;
+  --accent: #e4e4e7;
   --accent-soft: rgba(228, 228, 231, 0.18);
   --accent-ink: #18181b; /* Dark text for light charcoal/gray pill */
 }
@@ -65,6 +65,8 @@ html,
 body {
   margin: 0;
   padding: 0;
+  background: var(--bg-2);
+  overscroll-behavior-y: none;
 }
 body {
   background:
@@ -78,6 +80,7 @@ body {
   font-family: "Inter", sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 body::before {
   content: "";
@@ -630,7 +633,7 @@ textarea {
   background: #fb923c;
 }
 .theme-dot.charcoal {
-  background: #bdbdbd;
+  background: #e4e4e7;
 }
 .theme-dot.cherry {
   background: #c01d00;
