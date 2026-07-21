@@ -16,7 +16,7 @@
     <div id="app">
       <header class="hero">
         <p class="eyebrow">Menu</p>
-        <img class="hero-logo" src="images/pizza.png" alt="Logo">
+        <img class="hero-logo" src="/images/pizza.png" alt="Logo">
         <h1 id="bizName">&nbsp;</h1>
         <p class="tagline" id="bizTagline">&nbsp;</p>
         <div class="hero-rule"></div>
@@ -236,7 +236,7 @@
       let qrObj = null;
       let sessionPin = null;
 
-      function fileToOptimizedDataUrl(file, maxDim = 900, quality = 0.82) {
+      function fileToOptimizedDataUrl(file, maxDim = 700, quality = 0.75) {
         const hasAlpha =
           file.type === "image/png" ||
           file.type === "image/webp" ||
@@ -330,17 +330,42 @@
           btn.disabled = true;
           btn.textContent = "Publishing…";
         }
+        let approxKb = 0;
         try {
-          const { data, error } = await supabaseClient.rpc("save_menu", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-            p_data: state,
-          });
-          if (error || data !== true) throw new Error("save rejected");
+          // Rough size check — big base64 photos are the most common reason
+          // a publish stalls out on a slow mobile connection.
+          approxKb = Math.round(JSON.stringify(state).length / 1024);
+          console.log("Publishing menu, approx payload size:", approxKb, "KB");
+
+          const timeoutMs = 20000;
+          const timeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("timeout after " + timeoutMs + "ms")),
+              timeoutMs,
+            ),
+          );
+
+          const { data, error } = await Promise.race([
+            supabaseClient.rpc("save_menu", {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPin,
+              p_data: state,
+            }),
+            timeout,
+          ]);
+          if (error || data !== true) {
+            console.error("Publish rejected:", error, data);
+            throw new Error(error ? error.message || "rejected" : "rejected");
+          }
           dirty = false;
-          showToast("Published live");
+          showToast("Published live (" + approxKb + " KB)");
         } catch (e) {
-          showToast("Could not publish — check connection");
+          console.error("Publish failed:", e);
+          const isTimeout = String(e.message || "").includes("timeout");
+          const detail = isTimeout
+            ? "timed out after 20s, payload " + approxKb + " KB"
+            : "error: " + (e.message || "unknown");
+          showToast("Publish failed — " + detail, 6000);
         }
         updatePublishUI();
       }
@@ -352,12 +377,12 @@
         }
       });
 
-      function showToast(msg) {
+      function showToast(msg, duration = 1800) {
         const t = document.getElementById("toast");
         t.textContent = msg;
         t.classList.remove("hidden");
         clearTimeout(showToast._t);
-        showToast._t = setTimeout(() => t.classList.add("hidden"), 1800);
+        showToast._t = setTimeout(() => t.classList.add("hidden"), duration);
       }
 
       /* ---------------- CUSTOMER VIEW ---------------- */
