@@ -16,7 +16,7 @@
     <div id="app">
       <header class="hero">
         <p class="eyebrow">Menu</p>
-        <img class="hero-logo" src="images/pizza.png" alt="Logo">
+        <img class="hero-logo" src="images/pizza.png" alt="Logo" />
         <h1 id="bizName">&nbsp;</h1>
         <p class="tagline" id="bizTagline">&nbsp;</p>
         <div class="hero-rule"></div>
@@ -61,7 +61,9 @@
       const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
       const SUPABASE_ANON_KEY =
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
-      const MENU_SLUG = "cafe-aurora"; // unique per business — change this for each site you deploy
+      const MENU_SLUG = "cafe-aurora";
+      const MENU_BUCKET = "menu-photos";
+      const SIGNED_URL_TTL = 60 * 60 * 24 * 365 * 10; // 10 years — treat as effectively permanent
       const supabaseClient = window.supabase.createClient(
         SUPABASE_URL,
         SUPABASE_ANON_KEY,
@@ -236,7 +238,7 @@
       let qrObj = null;
       let sessionPin = null;
 
-      function fileToOptimizedDataUrl(file, maxDim = 700, quality = 0.75) {
+      function fileToOptimizedBlob(file, maxDim = 700, quality = 0.75) {
         const hasAlpha =
           file.type === "image/png" ||
           file.type === "image/webp" ||
@@ -263,10 +265,14 @@
               canvas.height = height;
               const ctx = canvas.getContext("2d");
               ctx.drawImage(img, 0, 0, width, height);
-              resolve(
-                hasAlpha
-                  ? canvas.toDataURL("image/png")
-                  : canvas.toDataURL("image/jpeg", quality),
+              const mime = hasAlpha ? "image/png" : "image/jpeg";
+              canvas.toBlob(
+                (blob) =>
+                  blob
+                    ? resolve({ blob, mime })
+                    : reject(new Error("toBlob failed")),
+                mime,
+                quality,
               );
             };
             img.src = e.target.result;
@@ -275,6 +281,75 @@
         });
       }
 
+      async function uploadItemImage(file, oldPath) {
+        const { blob, mime } = await fileToOptimizedBlob(file);
+        const ext = mime === "image/png" ? "png" : "jpg";
+        const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
+
+        const { error: upErr } = await supabaseClient.storage
+          .from(MENU_BUCKET)
+          .upload(path, blob, {
+            contentType: mime,
+            cacheControl: "31536000",
+            upsert: false,
+          });
+        if (upErr) throw upErr;
+
+        const { data: signed, error: signErr } = await supabaseClient.storage
+          .from(MENU_BUCKET)
+          .createSignedUrl(path, SIGNED_URL_TTL);
+        if (signErr) throw signErr;
+
+        if (oldPath) {
+          supabaseClient.storage
+            .from(MENU_BUCKET)
+            .remove([oldPath])
+            .catch(() => {});
+        }
+
+        return { url: signed.signedUrl, path };
+      }
+      async function migrateBase64Images() {
+        let count = 0;
+        for (const sec of state.sections || []) {
+          for (const it of sec.items || []) {
+            if (it.image && it.image.startsWith("data:")) {
+              try {
+                const resp = await fetch(it.image);
+                const blob = await resp.blob();
+                const ext = blob.type === "image/png" ? "png" : "jpg";
+                const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
+                const { error: upErr } = await supabaseClient.storage
+                  .from(MENU_BUCKET)
+                  .upload(path, blob, {
+                    contentType: blob.type,
+                    cacheControl: "31536000",
+                  });
+                if (upErr) throw upErr;
+                const { data: signed, error: signErr } =
+                  await supabaseClient.storage
+                    .from(MENU_BUCKET)
+                    .createSignedUrl(path, SIGNED_URL_TTL);
+                if (signErr) throw signErr;
+                it.image = signed.signedUrl;
+                it.imagePath = path;
+                count++;
+              } catch (e) {
+                console.error("Migration failed for an item:", e);
+              }
+            }
+          }
+        }
+        if (count > 0) {
+          markDirty();
+          renderAdmin();
+          showToast(
+            `Migrated ${count} photo(s) — click "Publish live" to save`,
+          );
+        } else {
+          showToast("No embedded photos found");
+        }
+      }
       function uid(prefix) {
         return prefix + "_" + Math.random().toString(36).slice(2, 9);
       }
@@ -555,6 +630,13 @@
           </div>
           <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
           <p class="url-note">Default PIN is 1234 — change it once you're in, under Business info.</p>
+          <div class="admin-section-card">
+  <div class="section-heading" style="margin-bottom:10px;">Photo storage</div>
+  <p style="color:var(--muted); font-size:13.5px; margin-bottom:10px;">
+    One-time cleanup: moves any photos still embedded in the menu data into Supabase Storage.
+  </p>
+  <button class="btn btn-block" onclick="migrateBase64Images()">Migrate embedded photos</button>
+</div>
         </div>
       </div>`;
           return;
@@ -916,18 +998,20 @@
             imageFileInput.value = "";
             return;
           }
+          const cur = findItem();
+          if (!cur) return;
+          showToast("Uploading image…", 60000);
           try {
-            const dataUrl = await fileToOptimizedDataUrl(file);
-            const cur = findItem();
-            if (cur) {
-              cur.image = dataUrl;
-              imageInput.value = "";
-              setPreview(dataUrl);
-              markDirty();
-              showToast("Image uploaded");
-            }
+            const { url, path } = await uploadItemImage(file, cur.imagePath);
+            cur.image = url;
+            cur.imagePath = path;
+            imageInput.value = "";
+            setPreview(url);
+            markDirty();
+            showToast("Image uploaded");
           } catch (e) {
-            showToast("Could not process that image");
+            console.error("Image upload failed:", e);
+            showToast("Could not upload that image");
           }
           imageFileInput.value = "";
         };
@@ -935,7 +1019,14 @@
         removeImageBtn.onclick = () => {
           const cur = findItem();
           if (cur) {
+            if (cur.imagePath) {
+              supabaseClient.storage
+                .from(MENU_BUCKET)
+                .remove([cur.imagePath])
+                .catch(() => {});
+            }
             cur.image = "";
+            cur.imagePath = "";
             imageInput.value = "";
             setPreview("");
             markDirty();
