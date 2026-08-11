@@ -519,6 +519,7 @@ body::before {
   height: 54px;
   border-radius: 50%;
   background: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent-ink);
   border: none;
   font-size: 22px;
@@ -541,6 +542,7 @@ body::before {
   left: calc(20px + env(safe-area-inset-left));
   right: auto;
   background: var(--card-elevated);
+  background-color: color-mix(in srgb, var(--card-elevated) 50%, transparent);
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
 }
