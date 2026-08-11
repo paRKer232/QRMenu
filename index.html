@@ -58,7 +58,7 @@
       >
         ↑
       </button>
-      
+
       <div class="overlay hidden" id="overlay">
         <div class="panel" id="panel"></div>
       </div>
@@ -596,6 +596,22 @@
       document.getElementById("overlay").addEventListener("click", (e) => {
         if (e.target.id === "overlay") closeAdmin();
       });
+      
+      const scrollTopBtn = document.getElementById("scrollTopBtn");
+      const SCROLL_TOP_SHOW_AT = 400;
+
+      function updateScrollTopBtn() {
+        scrollTopBtn.classList.toggle(
+          "hidden",
+          window.scrollY < SCROLL_TOP_SHOW_AT,
+        );
+      }
+      window.addEventListener("scroll", updateScrollTopBtn, { passive: true });
+      scrollTopBtn.onclick = () => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      };
+      updateScrollTopBtn();
+
       const tabsLeftBtn = document.getElementById("tabsLeft");
       const tabsRightBtn = document.getElementById("tabsRight");
       const tabsEl = document.getElementById("tabs");
