@@ -537,6 +537,10 @@ body::before {
 .fab.hidden {
   display: none;
 }
+.fab-top {
+  left: calc(20px + env(safe-area-inset-left));
+  right: auto;
+}
 
 /* ---------- OVERLAY / ADMIN ---------- */
 .overlay {
