@@ -654,17 +654,6 @@
     }
     tabsEl.addEventListener("scroll", updateTabArrows);
 
-    const scrollTopBtn = document.getElementById("scrollTopBtn");
-    window.addEventListener("scroll", () => {
-      scrollTopBtn.classList.toggle("hidden", window.scrollY < 400);
-    });
-    scrollTopBtn.onclick = () => {
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
-    };
-
     function renderAdmin() {
       const panel = document.getElementById("panel");
       if (!unlocked) {
