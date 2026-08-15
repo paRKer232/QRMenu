@@ -14,7 +14,7 @@
   <div id="app">
     <header class="hero">
       <div class="hero-bg">
-        <img class="hero-bg-img" src="" alt="" />
+        <img class="hero-bg-img" src="images/pizza-bg2.jpg" alt="" />
       </div>
       <p class="eyebrow">Menu</p>
       <img class="hero-logo" src="images/pizza.png" alt="Logo" />
@@ -224,6 +224,85 @@
 
     let state = null;
     let activeSection = null;
+    let voteCounts = {}; // item_id -> { likes, dislikes }, loaded from Supabase
+
+    function getDeviceId() {
+      let id;
+      try {
+        id = localStorage.getItem("deviceId");
+      } catch (e) {}
+      if (!id) {
+        id = crypto.randomUUID ?
+          crypto.randomUUID() :
+          "d-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+        try {
+          localStorage.setItem("deviceId", id);
+        } catch (e) {}
+      }
+      return id;
+    }
+
+    function getUserVote(itemId) {
+      try {
+        return localStorage.getItem("vote:" + MENU_SLUG + ":" + itemId);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function loadVoteCounts() {
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("get_vote_counts", {
+          p_slug: MENU_SLUG,
+        });
+        if (error) throw error;
+        voteCounts = {};
+        (data || []).forEach((r) => {
+          voteCounts[r.item_id] = {
+            likes: Number(r.likes) || 0,
+            dislikes: Number(r.dislikes) || 0,
+          };
+        });
+      } catch (e) {
+        voteCounts = {};
+      }
+    }
+
+    async function castVote(itemId, vote, btnEl) {
+      if (getUserVote(itemId) === vote) return; // already voted this way — ignore repeat taps
+      const row = btnEl.closest(".vote-row");
+      if (!row || row.dataset.busy === "1") return; // request already in flight
+      row.dataset.busy = "1";
+      row.querySelectorAll(".vote-btn").forEach((b) => (b.disabled = true));
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.rpc("cast_vote", {
+          p_slug: MENU_SLUG,
+          p_item_id: itemId,
+          p_device_id: getDeviceId(),
+          p_vote: vote,
+        });
+        if (error) throw error;
+        const result = Array.isArray(data) ? data[0] : data;
+        voteCounts[itemId] = {
+          likes: Number(result.likes) || 0,
+          dislikes: Number(result.dislikes) || 0,
+        };
+        try {
+          localStorage.setItem("vote:" + MENU_SLUG + ":" + itemId, vote);
+        } catch (e) {}
+        renderMenu();
+      } catch (e) {
+        showToast("Couldn't save your vote, try again");
+        row.dataset.busy = "0";
+        row.querySelectorAll(".vote-btn").forEach((b) => (b.disabled = false));
+      }
+    }
     let unlocked = false;
     let qrObj = null;
     let sessionPin = null;
@@ -388,6 +467,7 @@
       }
       if (!state.sections) state.sections = [];
       activeSection = state.sections[0] ? state.sections[0].id : null;
+      await loadVoteCounts();
       render();
       document.getElementById("app").classList.add("ready");
     }
@@ -569,8 +649,34 @@
           </div>
           ${descHtml}`;
 
+          const vc = voteCounts[it.id] || {
+            likes: 0,
+            dislikes: 0
+          };
+          const total = vc.likes + vc.dislikes;
+          const hasOverride =
+            it.likePercent !== undefined &&
+            it.likePercent !== null &&
+            it.likePercent !== "";
+          const percent = hasOverride ?
+            Math.max(0, Math.min(100, Math.round(Number(it.likePercent)))) :
+            total > 0 ?
+            Math.round((vc.likes / total) * 100) :
+            null;
+          const userVote = getUserVote(it.id);
+          const percentLabel =
+            percent === null ?
+            "" :
+            `<span class="vote-percent">${percent}% liked</span>`;
+          const voteRow = `
+          <div class="vote-row" data-busy="0">
+            <button class="vote-btn like ${userVote === "like" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Like this item" onclick="castVote('${it.id}','like',this)">👍</button>
+            <button class="vote-btn dislike ${userVote === "dislike" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Dislike this item" onclick="castVote('${it.id}','dislike',this)">👎</button>
+            ${percentLabel}
+          </div>`;
+
           html += `
-        <div class="item ${it.available === false ? "unavailable" : ""}">${rowHtml}</div>`;
+        <div class="item ${it.available === false ? "unavailable" : ""}">${rowHtml}${voteRow}</div>`;
         });
       }
       menu.innerHTML = html;
@@ -959,6 +1065,10 @@
       </div>
     </div>
     <div class="field"><textarea data-field="description" placeholder="Short description">${escapeHtml(item.description)}</textarea></div>
+    <div class="field">
+      <label>Like % override (blank = use real votes)</label>
+      <input type="number" min="0" max="100" value="${item.likePercent !== undefined && item.likePercent !== null ? item.likePercent : ""}" data-field="likePercent" placeholder="Auto from customer votes">
+    </div>
     <div class="tag-toggles"></div>
     <div class="item-card-foot">
       <label class="avail-toggle"><input type="checkbox" data-field="available" ${item.available !== false ? "checked" : ""}> Available</label>
@@ -975,6 +1085,7 @@
       const imagePreview = div.querySelector('[data-field="imagePreview"]');
       const removeImageBtn = div.querySelector('[data-field="removeImage"]');
       const descInput = div.querySelector('[data-field="description"]');
+      const likePercentInput = div.querySelector('[data-field="likePercent"]');
       const availInput = div.querySelector('[data-field="available"]');
       const deleteBtn = div.querySelector('[data-field="delete"]');
       const tagWrap = div.querySelector(".tag-toggles");
@@ -1016,6 +1127,21 @@
           cur.price = priceInput.value.trim() || "0.00";
           markDirty();
         }
+      };
+      likePercentInput.onchange = () => {
+        const cur = findItem();
+        if (!cur) return;
+        const v = likePercentInput.value.trim();
+        if (v === "") {
+          delete cur.likePercent;
+        } else {
+          let n = Math.round(Number(v));
+          if (isNaN(n)) n = 0;
+          n = Math.max(0, Math.min(100, n));
+          cur.likePercent = n;
+          likePercentInput.value = n;
+        }
+        markDirty();
       };
 
       function setPreview(url) {

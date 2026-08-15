@@ -453,6 +453,49 @@ body::before {
   margin: 5px 0 0;
   line-height: 1.5;
 }
+
+/* ---------- LIKE / DISLIKE ---------- */
+.vote-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.vote-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--bg-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.12s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.vote-btn:active {
+  transform: scale(0.9);
+}
+.vote-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.vote-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.vote-percent {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
 .item-badges {
   display: inline-flex;
   gap: 5px;
