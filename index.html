@@ -13,6 +13,9 @@
 <body>
   <div id="app">
     <header class="hero">
+      <div class="hero-bg">
+    <img class="hero-bg-img" src="/images/pizza-bg2.jpg" alt="" />
+  </div>
       <p class="eyebrow">Menu</p>
       <img class="hero-logo" src="images/pizza.png" alt="Logo" />
       <h1 id="bizName">&nbsp;</h1>
@@ -49,6 +52,9 @@
         ↑
       </button>
 
+    <div class="photo-lightbox hidden" id="photoLightbox" onclick="closePhoto()">
+      <img id="photoLightboxImg" src="" alt="">
+    </div>
     <div class="overlay hidden" id="overlay">
       <div class="panel" id="panel"></div>
     </div>
@@ -563,27 +569,19 @@
           const descHtml = it.description ?
             `<p class="item-desc">${escapeHtml(it.description)}</p>` :
             "";
+          const camIcon = it.image ?
+            `<button class="item-photo-btn" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}')">📷</button>` :
+            "";
           const rowHtml = `
           <div class="item-row">
-            <span class="item-name">${escapeHtml(it.name)}<span class="item-badges">${badges}</span></span>
+            <span class="item-name">${escapeHtml(it.name)}<span class="item-badges">${badges}</span>${camIcon}</span>
             <span class="leader"></span>
             <span class="item-price">${priceHtml}</span>
           </div>
           ${descHtml}`;
 
-          if (it.image) {
-            html += `
-<div class="item has-image ${it.available === false ? "unavailable" : ""}">
-  <div class="item-photo-wrap">
-    <div class="item-photo-bg" style="background-image:url('${escapeHtml(it.image)}')"></div>
-    <img class="item-photo" src="${escapeHtml(it.image)}" alt="" loading="lazy">
-  </div>
-  <div class="item-body">${rowHtml}</div>
-</div>`;
-          } else {
-            html += `
+          html += `
         <div class="item ${it.available === false ? "unavailable" : ""}">${rowHtml}</div>`;
-          }
         });
       }
       menu.innerHTML = html;
@@ -606,6 +604,14 @@
       document.body.style.overflow = "";
       document.body.style.touchAction = "";
       window.scrollTo(0, scrollLockY);
+    }
+
+    function openPhoto(url) {
+      document.getElementById("photoLightboxImg").src = url;
+      document.getElementById("photoLightbox").classList.remove("hidden");
+    }
+    function closePhoto() {
+      document.getElementById("photoLightbox").classList.add("hidden");
     }
 
       document.getElementById("overlay").addEventListener("click", (e) => {
