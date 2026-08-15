@@ -14,8 +14,8 @@
   <div id="app">
     <header class="hero">
       <div class="hero-bg">
-    <img class="hero-bg-img" src="images/pizza-bg2.jpg" alt="" />
-  </div>
+        <img class="hero-bg-img" src="" alt="" />
+      </div>
       <p class="eyebrow">Menu</p>
       <img class="hero-logo" src="images/pizza.png" alt="Logo" />
       <h1 id="bizName">&nbsp;</h1>
@@ -34,23 +34,12 @@
     </div>
     <main class="menu" id="menu"></main>
 
-      <button
-        class="fab hidden"
-        id="adminToggle"
-        title="Owner settings"
-        aria-label="Owner settings"
-      >
-        ⚙
-      </button>
-
-      <button
-        class="fab fab-top hidden"
-        id="scrollTopBtn"
-        title="Back to top"
-        aria-label="Back to top"
-      >
-        ↑
-      </button>
+    <button class="fab hidden" id="adminToggle" title="Owner settings" aria-label="Owner settings">
+      ⚙
+    </button>
+    <button class="fab fab-top hidden" id="scrollTopBtn" title="Scroll to top" aria-label="Scroll to top">
+      ↑
+    </button>
 
     <div class="photo-lightbox hidden" id="photoLightbox" onclick="closePhoto()">
       <img id="photoLightboxImg" src="" alt="">
@@ -570,7 +559,7 @@
             `<p class="item-desc">${escapeHtml(it.description)}</p>` :
             "";
           const camIcon = it.image ?
-            `<button class="item-photo-btn" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}')">📷</button>` :
+            `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>` :
             "";
           const rowHtml = `
           <div class="item-row">
@@ -606,36 +595,31 @@
       window.scrollTo(0, scrollLockY);
     }
 
-    function openPhoto(url) {
-      document.getElementById("photoLightboxImg").src = url;
-      document.getElementById("photoLightbox").classList.remove("hidden");
+    function openPhoto(url, sourceEl) {
+      const img = document.getElementById("photoLightboxImg");
+      const box = document.getElementById("photoLightbox");
+      img.src = url;
+      box.classList.remove("hidden");
+      if (sourceEl) {
+        const r = sourceEl.getBoundingClientRect();
+        const originX = r.left + r.width / 2;
+        const originY = r.top + r.height / 2;
+        img.style.transformOrigin = `${originX}px ${originY}px`;
+      }
+      requestAnimationFrame(() => box.classList.add("open"));
     }
     function closePhoto() {
-      document.getElementById("photoLightbox").classList.add("hidden");
+      const box = document.getElementById("photoLightbox");
+      box.classList.remove("open");
+      setTimeout(() => box.classList.add("hidden"), 280);
     }
 
-      document.getElementById("overlay").addEventListener("click", (e) => {
-        if (e.target.id === "overlay") closeAdmin();
-      });
-      
-      const scrollTopBtn = document.getElementById("scrollTopBtn");
-      const SCROLL_TOP_SHOW_AT = 400;
-
-      function updateScrollTopBtn() {
-        scrollTopBtn.classList.toggle(
-          "hidden",
-          window.scrollY < SCROLL_TOP_SHOW_AT,
-        );
-      }
-      window.addEventListener("scroll", updateScrollTopBtn, { passive: true });
-      scrollTopBtn.onclick = () => {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      };
-      updateScrollTopBtn();
-
-      const tabsLeftBtn = document.getElementById("tabsLeft");
-      const tabsRightBtn = document.getElementById("tabsRight");
-      const tabsEl = document.getElementById("tabs");
+    document.getElementById("overlay").addEventListener("click", (e) => {
+      if (e.target.id === "overlay") closeAdmin();
+    });
+    const tabsLeftBtn = document.getElementById("tabsLeft");
+    const tabsRightBtn = document.getElementById("tabsRight");
+    const tabsEl = document.getElementById("tabs");
 
     tabsLeftBtn.onclick = () => {
       tabsEl.scrollBy({
@@ -659,6 +643,17 @@
       );
     }
     tabsEl.addEventListener("scroll", updateTabArrows);
+
+    const scrollTopBtn = document.getElementById("scrollTopBtn");
+    window.addEventListener("scroll", () => {
+      scrollTopBtn.classList.toggle("hidden", window.scrollY < 400);
+    });
+    scrollTopBtn.onclick = () => {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    };
 
     function renderAdmin() {
       const panel = document.getElementById("panel");
