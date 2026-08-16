@@ -528,19 +528,18 @@ body::before {
   font-size: 14.5px;
 }
 
-/* items WITH a photo: a small persistent thumbnail, tap for full view */
+/* items WITH a photo: a small thumbnail above the text, tap to enlarge */
 .item-photo-thumb {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  margin-left: 6px;
+  display: block;
+  width: 70px;
+  height: 70px;
+  margin: 0 0 6px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
-  border-radius: 7px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-2);
   cursor: pointer;
-  vertical-align: middle;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.15s ease;
 }
@@ -1090,7 +1089,13 @@ textarea {
     margin-top: 16px;
   }
   .item {
+    align-items: center;
     margin-bottom: 10px;
+  }
+  .item-photo-thumb {
+    width: 70px;
+    height: 70px;
+    margin: 0 0 6px;
   }
   .item-desc {
     font-size: 13px;

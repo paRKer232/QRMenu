@@ -642,8 +642,9 @@
             `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>` :
             "";
           const rowHtml = `
+          ${camIcon}
           <div class="item-row">
-            <span class="item-name">${escapeHtml(it.name)}<span class="item-badges">${badges}</span>${camIcon}</span>
+            <span class="item-name">${escapeHtml(it.name)}<span class="item-badges">${badges}</span></span>
             <span class="leader"></span>
             <span class="item-price">${priceHtml}</span>
           </div>
