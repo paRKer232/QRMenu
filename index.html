@@ -682,7 +682,7 @@
           sub.items.forEach((it) => {
             const badges = (it.tags || []).map((t) => TAG_META[t] ?
               `<span class="badge" title="${TAG_META[t].title}">${TAG_META[t].label}</span>` : "").join("");
-            const priceHtml = it.available === false ? '<span class="sold-out-tag">Unavailable right now</span>' : currency + escapeHtml(it.price);
+            const priceHtml = it.available === false ? '<span class="sold-out-tag">Неналичен</span>' : currency + escapeHtml(it.price);
             const descHtml = it.description ? `<p class="item-desc">${escapeHtml(it.description)}</p>` : "";
             const mediaHtml = it.image ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>` : "";
             const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
@@ -690,15 +690,15 @@
             const hasOverride = it.likePercent !== undefined && it.likePercent !== null && it.likePercent !== "";
             const percent = hasOverride ? Math.max(0, Math.min(100, Math.round(Number(it.likePercent)))) : total > 0 ? Math.round((vc.likes / total) * 100) : null;
             const userVote = getUserVote(it.id);
-            const percentLabel = percent === null ? "" : `<span class="vote-percent">${percent}% liked</span>`;
-            const voteRow = `<div class="vote-row" data-busy="0">
-              <button class="vote-btn like ${userVote === "like" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Like this item" onclick="castVote('${it.id}','like',this)">👍</button>
-              <button class="vote-btn dislike ${userVote === "dislike" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Dislike this item" onclick="castVote('${it.id}','dislike',this)">👎</button>
-              ${percentLabel}
-            </div>`;
+            const percentLabel = percent === null ? "" : `<span class="vote-percent">${percent}% харесват</span>`;
+            const voteRow = it.available === false ? "" : `<div class="vote-row" data-busy="0">
+  <button class="vote-btn like ${userVote === "like" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Like this item" onclick="castVote('${it.id}','like',this)">👍</button>
+  <button class="vote-btn dislike ${userVote === "dislike" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Dislike this item" onclick="castVote('${it.id}','dislike',this)">👎</button>
+  ${percentLabel}
+</div>`;
             html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
               ${mediaHtml}<div class="item-body"><div class="item-top"><span class="item-name">${escapeHtml(it.name)}</span><span class="item-badges">${badges}</span></div>
-              ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span></div>${voteRow}</div></div>`;
+             ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div></div></div>`;
           });
           html += '</div>';
         });
@@ -884,10 +884,10 @@
         <div class="lock-screen">
           <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to edit this menu.</p>
           <div class="field" style="max-width:180px; margin:14px auto;">
-            <input type="text" inputmode="numeric" maxlength="4" id="pinInput" placeholder="••••">
+            <input type="text" inputmode="numeric" maxlength="6" id="pinInput" placeholder="••••••">
           </div>
           <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
-          <!-- <p class="url-note">Default PIN is 1234 — change it once you're in, under Business info.</p>-->
+          <!-- <p class="url-note">Default PIN — change it once you're in, under Business info.</p>-->
           <div class="admin-section-card">
   <div class="section-heading" style="margin-bottom:10px;">Photo storage</div>
   <p style="color:var(--muted); font-size:13.5px; margin-bottom:10px;">
@@ -917,7 +917,7 @@
       <div class="field"><label>Tagline</label><input type="text" id="fTagline" value="${escapeHtml(state.business.tagline)}"></div>
       <div class="row">
         <div class="field"><label>Currency symbol</label><input type="text" id="fCurrency" value="${escapeHtml(state.business.currency)}"></div>
-        <div class="field"><label>Owner PIN</label><input type="text" inputmode="numeric" maxlength="4" id="fPin" value="${escapeHtml(state.pin)}"></div>
+        <div class="field"><label>Owner PIN</label><input type="text" inputmode="numeric" maxlength="6" id="fPin" value="${escapeHtml(state.pin)}"></div>
       </div>
       <div class="field">
         <label>Accent theme</label>

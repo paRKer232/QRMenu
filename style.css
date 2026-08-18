@@ -457,9 +457,9 @@ body::before {
 }
 .items-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 18px 12px;
-  align-items: start;
+  align-items: stretch;
 }
 .item {
   display: flex;
@@ -514,16 +514,17 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   margin-top: auto;
   padding-top: 8px;
 }
 
-/* ---------- LIKE / DISLIKE ---------- */
 .vote-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 0;
   flex-wrap: wrap;
 }
 .vote-btn {
@@ -1297,9 +1298,9 @@ textarea {
   .section-heading:not(:first-child) {
     margin-top: 16px;
   }
-  .items-grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 10px 8px;
+   .items-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px 6px;
   }
   .item-photo-thumb {
     aspect-ratio: 4 / 3;
@@ -1325,19 +1326,19 @@ textarea {
   }
   .item-foot {
     padding-top: 6px;
+    gap: 4px 6px;
   }
   .vote-row {
-    margin-top: 5px;
-    gap: 5px;
-    flex-wrap: wrap;
+    margin-top: 0;
+    gap: 4px;
   }
   .vote-btn {
-    width: 24px;
-    height: 24px;
-    font-size: 11px;
+    width: 22px;
+    height: 22px;
+    font-size: 10px;
   }
   .vote-percent {
-    font-size: 10.5px;
+    font-size: 9.5px;
   }
   .hero h1 {
     font-size: clamp(26px, 8vw, 34px);
