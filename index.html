@@ -100,9 +100,6 @@
       amber: "Amber",
     };
 
-    // Visiting the page with this hash once (e.g. yoursite.com/#owner) flags
-    // THIS device as an admin device so the gear button shows up from then on.
-    // Change ADMIN_HASH to something less guessable before you publish.
     const ADMIN_HASH = "owner";
     const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
 
@@ -1604,6 +1601,7 @@
     }
 
     initAdminVisibility();
+    window.addEventListener("hashchange", initAdminVisibility);
     loadData();
   </script>
 </body>
