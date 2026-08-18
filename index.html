@@ -15,13 +15,25 @@
   <body>
     <div id="app">
       <div class="loading-screen" id="loadingScreen">
-      <div class="loading-spinner"></div>
-      <p class="loading-text">Loading menu…</p>
+        <div class="loading-spinner"></div>
+        <p class="loading-text">Loading menu…</p>
       </div>
       <header class="hero">
         <div class="hero-bg">
-          <img class="hero-bg-img" src="images/pizza-bg2.jpg" alt="" />
+          <img
+            class="hero-bg-img"
+            id="heroBgImg"
+            src="images/pizza-bg2.jpg"
+            alt=""
+          />
         </div>
+        <p class="eyebrow">Menu</p>
+        <img
+          class="hero-logo"
+          id="heroLogoImg"
+          src="images/pizza.png"
+          alt="Logo"
+        />
         <p class="eyebrow">Menu</p>
         <img class="hero-logo" src="images/pizza.png" alt="Logo" />
         <h1 id="bizName">&nbsp;</h1>
@@ -701,6 +713,12 @@
         document.getElementById("bizTagline").textContent =
           state.business.tagline || "";
         document.title = state.business.name || "Digital Menu";
+        const heroBgImg = document.getElementById("heroBgImg");
+        if (heroBgImg)
+          heroBgImg.src = state.business.heroImage || "images/pizza-bg2.jpg";
+        const heroLogoImg = document.getElementById("heroLogoImg");
+        if (heroLogoImg)
+          heroLogoImg.src = state.business.logo || "images/pizza.png";
         renderTabs();
         renderMenu();
       }
@@ -1038,7 +1056,33 @@
       <div class="section-heading" style="margin-bottom:10px;">Business info</div>
       <div class="field"><label>Name</label><input type="text" id="fName" value="${escapeHtml(state.business.name)}"></div>
       <div class="field"><label>Tagline</label><input type="text" id="fTagline" value="${escapeHtml(state.business.tagline)}"></div>
-      <div class="row">
+<div class="field">
+  <label>Hero background photo</label>
+  <div class="image-field-row">
+    <input type="text" id="fHeroImage" placeholder="Image URL (optional)" value="${escapeHtml(state.business.heroImage || "")}">
+    <label class="btn btn-sm image-upload-btn">Upload
+      <input type="file" accept="image/*" id="fHeroImageFile" hidden>
+    </label>
+  </div>
+  <div class="image-preview-wrap" id="heroImagePreviewWrap" ${state.business.heroImage ? "" : 'style="display:none;"'}>
+    <img class="image-preview" id="heroImagePreview" src="${escapeHtml(state.business.heroImage || "")}" alt="">
+    <button type="button" class="btn btn-sm btn-danger" id="removeHeroImage">Remove image</button>
+  </div>
+</div>
+<div class="field">
+  <label>Logo</label>
+  <div class="image-field-row">
+    <input type="text" id="fLogo" placeholder="Image URL (optional)" value="${escapeHtml(state.business.logo || "")}">
+    <label class="btn btn-sm image-upload-btn">Upload
+      <input type="file" accept="image/*" id="fLogoFile" hidden>
+    </label>
+  </div>
+  <div class="image-preview-wrap" id="logoPreviewWrap" ${state.business.logo ? "" : 'style="display:none;"'}>
+    <img class="image-preview" id="logoPreview" src="${escapeHtml(state.business.logo || "")}" alt="">
+    <button type="button" class="btn btn-sm btn-danger" id="removeLogo">Remove image</button>
+  </div>
+</div>
+<div class="row">
         <div class="field"><label>Currency symbol</label><input type="text" id="fCurrency" value="${escapeHtml(state.business.currency)}"></div>
         <div class="field"><label>Owner PIN</label><input type="text" inputmode="numeric" maxlength="6" id="fPin" value="${escapeHtml(state.pin)}"></div>
       </div>
@@ -1088,6 +1132,98 @@
           state.publishedUrl = e.target.value.trim();
           markDirty();
         };
+
+        function wireImageField(opts) {
+          const {
+            urlInput,
+            fileInput,
+            previewWrap,
+            previewImg,
+            removeBtn,
+            get,
+            set,
+          } = opts;
+          function setPreview(url) {
+            if (url) {
+              previewImg.src = url;
+              previewWrap.style.display = "";
+            } else {
+              previewImg.src = "";
+              previewWrap.style.display = "none";
+            }
+          }
+          urlInput.onchange = () => {
+            set({ image: urlInput.value.trim(), path: get().path });
+            setPreview(get().image);
+            markDirty();
+          };
+          fileInput.onchange = async () => {
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            if (!file.type.startsWith("image/")) {
+              showToast("Please choose an image file");
+              fileInput.value = "";
+              return;
+            }
+            showToast("Uploading image…", 60000);
+            try {
+              const { url, path } = await uploadItemImage(file, get().path);
+              set({ image: url, path });
+              urlInput.value = "";
+              setPreview(url);
+              markDirty();
+              showToast("Image uploaded");
+            } catch (e) {
+              console.error("Image upload failed:", e);
+              showToast("Could not upload that image");
+            }
+            fileInput.value = "";
+          };
+          removeBtn.onclick = () => {
+            if (get().path) {
+              supabaseClient.storage
+                .from(MENU_BUCKET)
+                .remove([get().path])
+                .catch(() => {});
+            }
+            set({ image: "", path: "" });
+            urlInput.value = "";
+            setPreview("");
+            markDirty();
+          };
+        }
+
+        wireImageField({
+          urlInput: document.getElementById("fHeroImage"),
+          fileInput: document.getElementById("fHeroImageFile"),
+          previewWrap: document.getElementById("heroImagePreviewWrap"),
+          previewImg: document.getElementById("heroImagePreview"),
+          removeBtn: document.getElementById("removeHeroImage"),
+          get: () => ({
+            image: state.business.heroImage,
+            path: state.business.heroImagePath,
+          }),
+          set: ({ image, path }) => {
+            state.business.heroImage = image;
+            state.business.heroImagePath = path;
+          },
+        });
+
+        wireImageField({
+          urlInput: document.getElementById("fLogo"),
+          fileInput: document.getElementById("fLogoFile"),
+          previewWrap: document.getElementById("logoPreviewWrap"),
+          previewImg: document.getElementById("logoPreview"),
+          removeBtn: document.getElementById("removeLogo"),
+          get: () => ({
+            image: state.business.logo,
+            path: state.business.logoPath,
+          }),
+          set: ({ image, path }) => {
+            state.business.logo = image;
+            state.business.logoPath = path;
+          },
+        });
 
         // theme dots
         const themeRow = document.getElementById("themeRow");
