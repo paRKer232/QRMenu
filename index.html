@@ -1,884 +1,1004 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Digital Menu</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Digital Menu</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="style.css" />
-</head>
-
-<body>
-  <div id="app">
-    <header class="hero">
-      <div class="hero-bg">
-        <img class="hero-bg-img" src="images/pizza-bg2.jpg" alt="" />
+  <body>
+    <div id="app">
+      <div class="loading-screen" id="loadingScreen">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">Loading menu…</p>
       </div>
-      <p class="eyebrow">Menu</p>
-      <img class="hero-logo" src="images/pizza.png" alt="Logo" />
-      <h1 id="bizName">&nbsp;</h1>
-      <p class="tagline" id="bizTagline">&nbsp;</p>
-      <div class="hero-rule"></div>
-    </header>
+      <header class="hero">
+        <div class="hero-bg">
+          <img class="hero-bg-img" src="images/pizza-bg2.jpg" alt="" />
+        </div>
+        <p class="eyebrow">Menu</p>
+        <img class="hero-logo" src="images/pizza.png" alt="Logo" />
+        <h1 id="bizName">&nbsp;</h1>
+        <p class="tagline" id="bizTagline">&nbsp;</p>
+        <div class="hero-rule"></div>
+      </header>
 
-    <div class="tabs-wrap">
-      <button class="tab-arrow tab-arrow-left" id="tabsLeft" aria-label="Scroll sections left">
-        ‹
+      <div class="tabs-wrap">
+        <button
+          class="tab-arrow tab-arrow-left"
+          id="tabsLeft"
+          aria-label="Scroll sections left"
+        >
+          ‹
+        </button>
+        <nav class="tabs" id="tabs"></nav>
+        <button
+          class="tab-arrow tab-arrow-right"
+          id="tabsRight"
+          aria-label="Scroll sections right"
+        >
+          ›
+        </button>
+      </div>
+      <nav class="subtabs hidden" id="subtabs"></nav>
+      <main class="menu" id="menu"></main>
+
+      <button
+        class="fab hidden"
+        id="adminToggle"
+        title="Owner settings"
+        aria-label="Owner settings"
+      >
+        ⚙
       </button>
-      <nav class="tabs" id="tabs"></nav>
-      <button class="tab-arrow tab-arrow-right" id="tabsRight" aria-label="Scroll sections right">
-        ›
+      <button
+        class="fab fab-top hidden"
+        id="scrollTopBtn"
+        title="Scroll to top"
+        aria-label="Scroll to top"
+      >
+        ↑
       </button>
+      <div
+        class="photo-lightbox hidden"
+        id="photoLightbox"
+        onclick="closePhoto()"
+      >
+        <img id="photoLightboxImg" src="" alt="" />
+      </div>
+      <div class="overlay hidden" id="overlay">
+        <div class="panel" id="panel"></div>
+      </div>
+
+      <div class="toast hidden" id="toast"></div>
     </div>
-    <nav class="subtabs hidden" id="subtabs"></nav>
-    <main class="menu" id="menu"></main>
-
-    <button class="fab hidden" id="adminToggle" title="Owner settings" aria-label="Owner settings">
-      ⚙
-    </button>
-    <button class="fab fab-top hidden" id="scrollTopBtn" title="Scroll to top" aria-label="Scroll to top">
-      ↑
-    </button>
-    <div class="photo-lightbox hidden" id="photoLightbox" onclick="closePhoto()">
-      <img id="photoLightboxImg" src="" alt="">
-    </div>
-    <div class="overlay hidden" id="overlay">
-      <div class="panel" id="panel"></div>
-    </div>
-
-    <div class="toast hidden" id="toast"></div>
-  </div>
-<footer class="footer">
-  <div class="footer-container">
-    <p class="copyright">
-      &copy; <span id="year"></span> Soner. All rights reserved.
-    </p>
-  </div>
-</footer>
-  <script>
-    const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
-    const SUPABASE_ANON_KEY =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
-    const MENU_SLUG = "cafe-aurora";
-    const MENU_BUCKET = "menu-photos";
-    const SIGNED_URL_TTL = 60 * 60 * 24 * 365 * 10; // 10 years — treat as effectively permanent
-    const supabaseClient = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY,
-    );
-    const TAG_META = {
-      veg: {
-        label: "V",
-        title: "Vegetarian",
-      },
-      vegan: {
-        label: "VG",
-        title: "Vegan",
-      },
-      gf: {
-        label: "GF",
-        title: "Gluten-free",
-      },
-      spicy: {
-        label: "🌶",
-        title: "Spicy",
-      },
-      new: {
-        label: "NEW",
-        title: "New",
-      },
-    };
-    const THEME_NAMES = {
-      navy: "Navy",
-      wine: "Wine",
-      sage: "Sage",
-      clay: "Clay",
-      charcoal: "Charcoal",
-      cherry: "Cherry",
-      amber: "Amber",
-    };
-
-    const ADMIN_HASH = "owner";
-    const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
-
-    function initAdminVisibility() {
-      if (window.location.hash === "#" + ADMIN_HASH) {
-        try {
-          localStorage.setItem(ADMIN_DEVICE_KEY, "1");
-        } catch (e) {}
-        // Strip the hash from the address bar so it doesn't linger visibly.
-        history.replaceState(
-          null,
-          "",
-          window.location.pathname + window.location.search,
-        );
-      }
-      let isAdminDevice = false;
-      try {
-        isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
-      } catch (e) {}
-      const fab = document.getElementById("adminToggle");
-      if (fab) fab.classList.toggle("hidden", !isAdminDevice);
-    }
-
-    function forgetThisDevice() {
-      try {
-        localStorage.removeItem(ADMIN_DEVICE_KEY);
-      } catch (e) {}
-      closeAdmin();
-      unlocked = false;
-      sessionPin = null;
-      initAdminVisibility();
-      showToast("Admin access removed from this device");
-    }
-
-    function confirmForgetDevice() {
-      const ok = confirm(
-        "Remove the gear/admin button from this device? You'll need the special link to bring it back.",
+    <footer class="footer">
+      <div class="footer-container">
+        <p class="copyright">
+          &copy; <span id="year"></span> Soner. All rights reserved.
+        </p>
+      </div>
+    </footer>
+    <script>
+      const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
+      const SUPABASE_ANON_KEY =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
+      const MENU_SLUG = "cafe-aurora";
+      const MENU_BUCKET = "menu-photos";
+      const SIGNED_URL_TTL = 60 * 60 * 24 * 365 * 10; // 10 years — treat as effectively permanent
+      const supabaseClient = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_ANON_KEY,
       );
-      if (ok) forgetThisDevice();
-    }
-
-    function defaultData() {
-      return {
-        business: {
-          name: "Café Aurora",
-          tagline: "Slow mornings, honest coffee",
-          currency: "$",
-          accent: "sage",
+      const TAG_META = {
+        veg: {
+          label: "V",
+          title: "Vegetarian",
         },
-        publishedUrl: "",
-        sections: [{
-            id: "s1",
-            title: "Coffee",
-            items: [{
-                id: "i1",
-                name: "Espresso",
-                description: "Double shot, house blend",
-                price: "3.00",
-                tags: ["vegan"],
-                available: true,
-              },
-              {
-                id: "i2",
-                name: "Flat White",
-                description: "Espresso, steamed milk",
-                price: "4.50",
-                tags: [],
-                available: true,
-              },
-              {
-                id: "i3",
-                name: "Iced Matcha Latte",
-                description: "Ceremonial grade, oat milk",
-                price: "5.25",
-                tags: ["vegan", "new"],
-                available: true,
-              },
-            ],
-          },
-          {
-            id: "s2",
-            title: "Breakfast",
-            items: [{
-                id: "i4",
-                name: "Avocado Toast",
-                description: "Sourdough, chili flake, lime",
-                price: "8.00",
-                tags: ["veg"],
-                available: true,
-              },
-              {
-                id: "i5",
-                name: "Shakshuka",
-                description: "Baked eggs, tomato, feta",
-                price: "9.50",
-                tags: ["gf"],
-                available: true,
-              },
-            ],
-          },
-          {
-            id: "s3",
-            title: "Pastries",
-            items: [{
-                id: "i6",
-                name: "Almond Croissant",
-                description: "Baked fresh daily",
-                price: "4.00",
-                tags: ["veg"],
-                available: true,
-              },
-              {
-                id: "i7",
-                name: "Banana Bread",
-                description: "Walnut, brown butter",
-                price: "3.75",
-                tags: ["veg"],
-                available: false,
-              },
-            ],
-          },
-          {
-            id: "s4",
-            title: "Alcohols",
-            subsections: [
-              { id: "ss4a", title: "Wine", items: [
-                { id: "i8", name: "House Red", description: "Glass", price: "7.00", tags: [], available: true },
-                { id: "i9", name: "House White", description: "Glass", price: "7.00", tags: [], available: true },
-              ]},
-              { id: "ss4b", title: "Beer", items: [
-                { id: "i10", name: "Lager", description: "Cold bottle", price: "5.00", tags: [], available: true },
-              ]},
-              { id: "ss4c", title: "Cocktails", items: [
-                { id: "i11", name: "Aperol Spritz", description: "Aperol, prosecco, soda", price: "9.00", tags: [], available: true },
-              ]},
-            ],
-          },
-        ],
+        vegan: {
+          label: "VG",
+          title: "Vegan",
+        },
+        gf: {
+          label: "GF",
+          title: "Gluten-free",
+        },
+        spicy: {
+          label: "🌶",
+          title: "Spicy",
+        },
+        new: {
+          label: "NEW",
+          title: "New",
+        },
       };
-    }
+      const THEME_NAMES = {
+        navy: "Navy",
+        wine: "Wine",
+        sage: "Sage",
+        clay: "Clay",
+        charcoal: "Charcoal",
+        cherry: "Cherry",
+        amber: "Amber",
+      };
 
-    let state = null;
-    let activeSection = null;
-    let activeSubsection = null;
-    let voteCounts = {}; // item_id -> { likes, dislikes }, loaded from Supabase
-    let expandedItems = new Set(); // item ids currently expanded in the admin panel
-    let dragState = null; // { sectionId, itemId } of the item card currently being dragged
+      const ADMIN_HASH = "owner";
+      const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
 
-    function getDeviceId() {
-      let id;
-      try {
-        id = localStorage.getItem("deviceId");
-      } catch (e) {}
-      if (!id) {
-        id = crypto.randomUUID ?
-          crypto.randomUUID() :
-          "d-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+      function initAdminVisibility() {
+        if (window.location.hash === "#" + ADMIN_HASH) {
+          try {
+            localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+          } catch (e) {}
+          // Strip the hash from the address bar so it doesn't linger visibly.
+          history.replaceState(
+            null,
+            "",
+            window.location.pathname + window.location.search,
+          );
+        }
+        let isAdminDevice = false;
         try {
-          localStorage.setItem("deviceId", id);
+          isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
         } catch (e) {}
+        const fab = document.getElementById("adminToggle");
+        if (fab) fab.classList.toggle("hidden", !isAdminDevice);
       }
-      return id;
-    }
 
-    function getUserVote(itemId) {
-      try {
-        return localStorage.getItem("vote:" + MENU_SLUG + ":" + itemId);
-      } catch (e) {
-        return null;
+      function forgetThisDevice() {
+        try {
+          localStorage.removeItem(ADMIN_DEVICE_KEY);
+        } catch (e) {}
+        closeAdmin();
+        unlocked = false;
+        sessionPin = null;
+        initAdminVisibility();
+        showToast("Admin access removed from this device");
       }
-    }
 
-    async function loadVoteCounts() {
-      try {
-        const {
-          data,
-          error
-        } = await supabaseClient.rpc("get_vote_counts", {
-          p_slug: MENU_SLUG,
-        });
-        if (error) throw error;
-        voteCounts = {};
-        (data || []).forEach((r) => {
-          voteCounts[r.item_id] = {
-            likes: Number(r.likes) || 0,
-            dislikes: Number(r.dislikes) || 0,
-          };
-        });
-      } catch (e) {
-        voteCounts = {};
+      function confirmForgetDevice() {
+        const ok = confirm(
+          "Remove the gear/admin button from this device? You'll need the special link to bring it back.",
+        );
+        if (ok) forgetThisDevice();
       }
-    }
 
-    async function castVote(itemId, vote, btnEl) {
-      if (getUserVote(itemId) === vote) return; // already voted this way — ignore repeat taps
-      const row = btnEl.closest(".vote-row");
-      if (!row || row.dataset.busy === "1") return; // request already in flight
-      row.dataset.busy = "1";
-      row.querySelectorAll(".vote-btn").forEach((b) => (b.disabled = true));
-      try {
-        const {
-          data,
-          error
-        } = await supabaseClient.rpc("cast_vote", {
-          p_slug: MENU_SLUG,
-          p_item_id: itemId,
-          p_device_id: getDeviceId(),
-          p_vote: vote,
-        });
-        if (error) throw error;
-        const result = Array.isArray(data) ? data[0] : data;
-        voteCounts[itemId] = {
-          likes: Number(result.likes) || 0,
-          dislikes: Number(result.dislikes) || 0,
+      function defaultData() {
+        return {
+          business: {
+            name: "Café Aurora",
+            tagline: "Slow mornings, honest coffee",
+            currency: "$",
+            accent: "sage",
+          },
+          publishedUrl: "",
+          sections: [
+            {
+              id: "s1",
+              title: "Coffee",
+              items: [
+                {
+                  id: "i1",
+                  name: "Espresso",
+                  description: "Double shot, house blend",
+                  price: "3.00",
+                  tags: ["vegan"],
+                  available: true,
+                },
+                {
+                  id: "i2",
+                  name: "Flat White",
+                  description: "Espresso, steamed milk",
+                  price: "4.50",
+                  tags: [],
+                  available: true,
+                },
+                {
+                  id: "i3",
+                  name: "Iced Matcha Latte",
+                  description: "Ceremonial grade, oat milk",
+                  price: "5.25",
+                  tags: ["vegan", "new"],
+                  available: true,
+                },
+              ],
+            },
+            {
+              id: "s2",
+              title: "Breakfast",
+              items: [
+                {
+                  id: "i4",
+                  name: "Avocado Toast",
+                  description: "Sourdough, chili flake, lime",
+                  price: "8.00",
+                  tags: ["veg"],
+                  available: true,
+                },
+                {
+                  id: "i5",
+                  name: "Shakshuka",
+                  description: "Baked eggs, tomato, feta",
+                  price: "9.50",
+                  tags: ["gf"],
+                  available: true,
+                },
+              ],
+            },
+            {
+              id: "s3",
+              title: "Pastries",
+              items: [
+                {
+                  id: "i6",
+                  name: "Almond Croissant",
+                  description: "Baked fresh daily",
+                  price: "4.00",
+                  tags: ["veg"],
+                  available: true,
+                },
+                {
+                  id: "i7",
+                  name: "Banana Bread",
+                  description: "Walnut, brown butter",
+                  price: "3.75",
+                  tags: ["veg"],
+                  available: false,
+                },
+              ],
+            },
+            {
+              id: "s4",
+              title: "Alcohols",
+              subsections: [
+                {
+                  id: "ss4a",
+                  title: "Wine",
+                  items: [
+                    {
+                      id: "i8",
+                      name: "House Red",
+                      description: "Glass",
+                      price: "7.00",
+                      tags: [],
+                      available: true,
+                    },
+                    {
+                      id: "i9",
+                      name: "House White",
+                      description: "Glass",
+                      price: "7.00",
+                      tags: [],
+                      available: true,
+                    },
+                  ],
+                },
+                {
+                  id: "ss4b",
+                  title: "Beer",
+                  items: [
+                    {
+                      id: "i10",
+                      name: "Lager",
+                      description: "Cold bottle",
+                      price: "5.00",
+                      tags: [],
+                      available: true,
+                    },
+                  ],
+                },
+                {
+                  id: "ss4c",
+                  title: "Cocktails",
+                  items: [
+                    {
+                      id: "i11",
+                      name: "Aperol Spritz",
+                      description: "Aperol, prosecco, soda",
+                      price: "9.00",
+                      tags: [],
+                      available: true,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
         };
-        try {
-          localStorage.setItem("vote:" + MENU_SLUG + ":" + itemId, vote);
-        } catch (e) {}
-        renderMenu();
-      } catch (e) {
-        showToast("Couldn't save your vote, try again");
-        row.dataset.busy = "0";
-        row.querySelectorAll(".vote-btn").forEach((b) => (b.disabled = false));
       }
-    }
-    let unlocked = false;
-    let qrObj = null;
-    let sessionPin = null;
 
-    function fileToOptimizedBlob(file, maxDim = 700, quality = 0.75) {
-      const hasAlpha =
-        file.type === "image/png" ||
-        file.type === "image/webp" ||
-        file.type === "image/gif";
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error("read failed"));
-        reader.onload = (e) => {
-          const img = new Image();
-          img.onerror = () => reject(new Error("decode failed"));
-          img.onload = () => {
-            let {
-              width,
-              height
-            } = img;
-            if (width > maxDim || height > maxDim) {
-              if (width > height) {
-                height = Math.round(height * (maxDim / width));
-                width = maxDim;
-              } else {
-                width = Math.round(width * (maxDim / height));
-                height = maxDim;
+      let state = null;
+      let activeSection = null;
+      let activeSubsection = null;
+      let voteCounts = {}; // item_id -> { likes, dislikes }, loaded from Supabase
+      let expandedItems = new Set(); // item ids currently expanded in the admin panel
+      let dragState = null; // { sectionId, itemId } of the item card currently being dragged
+
+      function getDeviceId() {
+        let id;
+        try {
+          id = localStorage.getItem("deviceId");
+        } catch (e) {}
+        if (!id) {
+          id = crypto.randomUUID
+            ? crypto.randomUUID()
+            : "d-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+          try {
+            localStorage.setItem("deviceId", id);
+          } catch (e) {}
+        }
+        return id;
+      }
+
+      function getUserVote(itemId) {
+        try {
+          return localStorage.getItem("vote:" + MENU_SLUG + ":" + itemId);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function loadVoteCounts() {
+        try {
+          const { data, error } = await supabaseClient.rpc("get_vote_counts", {
+            p_slug: MENU_SLUG,
+          });
+          if (error) throw error;
+          voteCounts = {};
+          (data || []).forEach((r) => {
+            voteCounts[r.item_id] = {
+              likes: Number(r.likes) || 0,
+              dislikes: Number(r.dislikes) || 0,
+            };
+          });
+        } catch (e) {
+          voteCounts = {};
+        }
+      }
+
+      async function castVote(itemId, vote, btnEl) {
+        if (getUserVote(itemId) === vote) return; // already voted this way — ignore repeat taps
+        const row = btnEl.closest(".vote-row");
+        if (!row || row.dataset.busy === "1") return; // request already in flight
+        row.dataset.busy = "1";
+        row.querySelectorAll(".vote-btn").forEach((b) => (b.disabled = true));
+        try {
+          const { data, error } = await supabaseClient.rpc("cast_vote", {
+            p_slug: MENU_SLUG,
+            p_item_id: itemId,
+            p_device_id: getDeviceId(),
+            p_vote: vote,
+          });
+          if (error) throw error;
+          const result = Array.isArray(data) ? data[0] : data;
+          voteCounts[itemId] = {
+            likes: Number(result.likes) || 0,
+            dislikes: Number(result.dislikes) || 0,
+          };
+          try {
+            localStorage.setItem("vote:" + MENU_SLUG + ":" + itemId, vote);
+          } catch (e) {}
+          renderMenu();
+        } catch (e) {
+          showToast("Couldn't save your vote, try again");
+          row.dataset.busy = "0";
+          row
+            .querySelectorAll(".vote-btn")
+            .forEach((b) => (b.disabled = false));
+        }
+      }
+      let unlocked = false;
+      let qrObj = null;
+      let sessionPin = null;
+
+      function fileToOptimizedBlob(file, maxDim = 700, quality = 0.75) {
+        const hasAlpha =
+          file.type === "image/png" ||
+          file.type === "image/webp" ||
+          file.type === "image/gif";
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("read failed"));
+          reader.onload = (e) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error("decode failed"));
+            img.onload = () => {
+              let { width, height } = img;
+              if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                  height = Math.round(height * (maxDim / width));
+                  width = maxDim;
+                } else {
+                  width = Math.round(width * (maxDim / height));
+                  height = maxDim;
+                }
+              }
+              const canvas = document.createElement("canvas");
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0, width, height);
+              const mime = hasAlpha ? "image/png" : "image/jpeg";
+              canvas.toBlob(
+                (blob) =>
+                  blob
+                    ? resolve({
+                        blob,
+                        mime,
+                      })
+                    : reject(new Error("toBlob failed")),
+                mime,
+                quality,
+              );
+            };
+            img.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function uploadItemImage(file, oldPath) {
+        const { blob, mime } = await fileToOptimizedBlob(file);
+        const ext = mime === "image/png" ? "png" : "jpg";
+        const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
+
+        const { error: upErr } = await supabaseClient.storage
+          .from(MENU_BUCKET)
+          .upload(path, blob, {
+            contentType: mime,
+            cacheControl: "31536000",
+            upsert: false,
+          });
+        if (upErr) throw upErr;
+
+        const { data: signed, error: signErr } = await supabaseClient.storage
+          .from(MENU_BUCKET)
+          .createSignedUrl(path, SIGNED_URL_TTL);
+        if (signErr) throw signErr;
+
+        if (oldPath) {
+          supabaseClient.storage
+            .from(MENU_BUCKET)
+            .remove([oldPath])
+            .catch(() => {});
+        }
+
+        return {
+          url: signed.signedUrl,
+          path,
+        };
+      }
+      async function migrateBase64Images() {
+        let count = 0;
+        for (const sec of state.sections || []) {
+          const allSubsections = sec.subsections || [
+            { items: sec.items || [] },
+          ];
+          for (const sub of allSubsections) {
+            for (const it of sub.items || []) {
+              if (it.image && it.image.startsWith("data:")) {
+                try {
+                  const resp = await fetch(it.image);
+                  const blob = await resp.blob();
+                  const ext = blob.type === "image/png" ? "png" : "jpg";
+                  const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
+                  const { error: upErr } = await supabaseClient.storage
+                    .from(MENU_BUCKET)
+                    .upload(path, blob, {
+                      contentType: blob.type,
+                      cacheControl: "31536000",
+                    });
+                  if (upErr) throw upErr;
+                  const { data: signed, error: signErr } =
+                    await supabaseClient.storage
+                      .from(MENU_BUCKET)
+                      .createSignedUrl(path, SIGNED_URL_TTL);
+                  if (signErr) throw signErr;
+                  it.image = signed.signedUrl;
+                  it.imagePath = path;
+                  count++;
+                } catch (e) {
+                  console.error("Migration failed for an item:", e);
+                }
               }
             }
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-            const mime = hasAlpha ? "image/png" : "image/jpeg";
-            canvas.toBlob(
-              (blob) =>
-              blob ?
-              resolve({
-                blob,
-                mime
-              }) :
-              reject(new Error("toBlob failed")),
-              mime,
-              quality,
-            );
-          };
-          img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-
-    async function uploadItemImage(file, oldPath) {
-      const {
-        blob,
-        mime
-      } = await fileToOptimizedBlob(file);
-      const ext = mime === "image/png" ? "png" : "jpg";
-      const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
-
-      const {
-        error: upErr
-      } = await supabaseClient.storage
-        .from(MENU_BUCKET)
-        .upload(path, blob, {
-          contentType: mime,
-          cacheControl: "31536000",
-          upsert: false,
-        });
-      if (upErr) throw upErr;
-
-      const {
-        data: signed,
-        error: signErr
-      } = await supabaseClient.storage
-        .from(MENU_BUCKET)
-        .createSignedUrl(path, SIGNED_URL_TTL);
-      if (signErr) throw signErr;
-
-      if (oldPath) {
-        supabaseClient.storage
-          .from(MENU_BUCKET)
-          .remove([oldPath])
-          .catch(() => {});
-      }
-
-      return {
-        url: signed.signedUrl,
-        path
-      };
-    }
-    async function migrateBase64Images() {
-      let count = 0;
-      for (const sec of state.sections || []) {
-        const allSubsections = sec.subsections || [{ items: sec.items || [] }];
-        for (const sub of allSubsections) {
-          for (const it of sub.items || []) {
-          if (it.image && it.image.startsWith("data:")) {
-            try {
-              const resp = await fetch(it.image);
-              const blob = await resp.blob();
-              const ext = blob.type === "image/png" ? "png" : "jpg";
-              const path = `${MENU_SLUG}/${uid("img")}.${ext}`;
-              const {
-                error: upErr
-              } = await supabaseClient.storage
-                .from(MENU_BUCKET)
-                .upload(path, blob, {
-                  contentType: blob.type,
-                  cacheControl: "31536000",
-                });
-              if (upErr) throw upErr;
-              const {
-                data: signed,
-                error: signErr
-              } =
-              await supabaseClient.storage
-                .from(MENU_BUCKET)
-                .createSignedUrl(path, SIGNED_URL_TTL);
-              if (signErr) throw signErr;
-              it.image = signed.signedUrl;
-              it.imagePath = path;
-              count++;
-            } catch (e) {
-              console.error("Migration failed for an item:", e);
-            }
-          }
           }
         }
-      }
-      if (count > 0) {
-        markDirty();
-        renderAdmin();
-        showToast(
-          `Migrated ${count} photo(s) — click "Publish live" to save`,
-        );
-      } else {
-        showToast("No embedded photos found");
-      }
-    }
-
-    function uid(prefix) {
-      return prefix + "_" + Math.random().toString(36).slice(2, 9);
-    }
-
-    function escapeHtml(str) {
-      const d = document.createElement("div");
-      d.textContent = str == null ? "" : String(str);
-      return d.innerHTML;
-    }
-
-    // Keep older saved menus working while adding nested menu subsections.
-    // A legacy section with direct items becomes one "General" subsection.
-    function normalizeMenuSections() {
-      if (!state.sections) state.sections = [];
-      state.sections = state.sections.map((sec) => {
-        if (!Array.isArray(sec.subsections)) {
-          sec.subsections = [{
-            id: uid("ss"),
-            title: "General",
-            items: Array.isArray(sec.items) ? sec.items : [],
-          }];
-          delete sec.items;
+        if (count > 0) {
+          markDirty();
+          renderAdmin();
+          showToast(
+            `Migrated ${count} photo(s) — click "Publish live" to save`,
+          );
+        } else {
+          showToast("No embedded photos found");
         }
-        sec.subsections = sec.subsections.map((sub) => ({
-          id: sub.id || uid("ss"),
-          title: sub.title || "General",
-          items: Array.isArray(sub.items) ? sub.items : [],
-        }));
-        if (!sec.subsections.length) {
-          sec.subsections.push({ id: uid("ss"), title: "General", items: [] });
-        }
-        return sec;
-      });
-    }
+      }
 
-    async function loadData() {
-      try {
-        const {
-          data,
-          error
-        } = await supabaseClient.rpc("get_menu", {
-          p_slug: MENU_SLUG,
+      function uid(prefix) {
+        return prefix + "_" + Math.random().toString(36).slice(2, 9);
+      }
+
+      function escapeHtml(str) {
+        const d = document.createElement("div");
+        d.textContent = str == null ? "" : String(str);
+        return d.innerHTML;
+      }
+
+      // Keep older saved menus working while adding nested menu subsections.
+      // A legacy section with direct items becomes one "General" subsection.
+      function normalizeMenuSections() {
+        if (!state.sections) state.sections = [];
+        state.sections = state.sections.map((sec) => {
+          if (!Array.isArray(sec.subsections)) {
+            sec.subsections = [
+              {
+                id: uid("ss"),
+                title: "General",
+                items: Array.isArray(sec.items) ? sec.items : [],
+              },
+            ];
+            delete sec.items;
+          }
+          sec.subsections = sec.subsections.map((sub) => ({
+            id: sub.id || uid("ss"),
+            title: sub.title || "General",
+            items: Array.isArray(sub.items) ? sub.items : [],
+          }));
+          if (!sec.subsections.length) {
+            sec.subsections.push({
+              id: uid("ss"),
+              title: "General",
+              items: [],
+            });
+          }
+          return sec;
         });
-        if (error) throw error;
-        state = data ? data : defaultData();
-      } catch (e) {
-        state = defaultData();
       }
-      normalizeMenuSections();
-      activeSection = state.sections[0] ? state.sections[0].id : null;
-      const firstSection = state.sections[0];
-      activeSubsection = firstSection && firstSection.subsections && firstSection.subsections[0]
-        ? firstSection.subsections[0].id
-        : null;
-      await loadVoteCounts();
-      render();
-      document.getElementById("app").classList.add("ready");
-    }
 
-    let dirty = false;
-
-    function markDirty() {
-      dirty = true;
-      updatePublishUI();
-      render();
-    }
-
-    function updatePublishUI() {
-      const btn = document.getElementById("publishLiveBtn");
-      const status = document.getElementById("publishStatus");
-      if (btn) {
-        btn.disabled = !dirty;
-        btn.textContent = dirty ? "Publish live" : "Published";
-      }
-      if (status) {
-        status.textContent = dirty ?
-          "You have unpublished changes" :
-          "Everything is published";
-        status.classList.toggle("dirty", dirty);
-      }
-    }
-
-    async function publishLive() {
-      const btn = document.getElementById("publishLiveBtn");
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = "Publishing…";
-      }
-      let approxKb = 0;
-      try {
-        // Rough size check — big base64 photos are the most common reason
-        // a publish stalls out on a slow mobile connection.
-        approxKb = Math.round(JSON.stringify(state).length / 1024);
-        console.log("Publishing menu, approx payload size:", approxKb, "KB");
-
-        const timeoutMs = 20000;
-        const timeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("timeout after " + timeoutMs + "ms")),
-            timeoutMs,
-          ),
-        );
-
-        const {
-          data,
-          error
-        } = await Promise.race([
-          supabaseClient.rpc("save_menu", {
+      async function loadData() {
+        let data;
+        try {
+          const result = await supabaseClient.rpc("get_menu", {
             p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-            p_data: state,
-          }),
-          timeout,
-        ]);
-        if (error || data !== true) {
-          console.error("Publish rejected:", error, data);
-          throw new Error(error ? error.message || "rejected" : "rejected");
+          });
+          if (result.error) throw result.error;
+          data = result.data;
+        } catch (e) {
+          console.error("Failed to load menu:", e);
+          renderLoadError();
+          return;
         }
-        dirty = false;
-        showToast("Published live (" + approxKb + " KB)");
-      } catch (e) {
-        console.error("Publish failed:", e);
-        const isTimeout = String(e.message || "").includes("timeout");
-        const detail = isTimeout ?
-          "timed out after 20s, payload " + approxKb + " KB" :
-          "error: " + (e.message || "unknown");
-        showToast("Publish failed — " + detail, 6000);
+        // No error, but no row for this slug yet — genuinely a fresh/unconfigured
+        // business, so seeding with defaultData() here is correct (not an error case).
+        state = data ? data : defaultData();
+        normalizeMenuSections();
+        activeSection = state.sections[0] ? state.sections[0].id : null;
+        const firstSection = state.sections[0];
+        activeSubsection =
+          firstSection &&
+          firstSection.subsections &&
+          firstSection.subsections[0]
+            ? firstSection.subsections[0].id
+            : null;
+        await loadVoteCounts();
+        render();
+        document.getElementById("app").classList.add("ready");
       }
-      updatePublishUI();
-    }
-
-    window.addEventListener("beforeunload", (e) => {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = "";
+      function renderLoadError() {
+        document.getElementById("bizName").textContent = "Menu unavailable";
+        document.getElementById("bizTagline").textContent = "";
+        document.title = "Menu unavailable";
+        document.getElementById("tabs").innerHTML = "";
+        document.getElementById("subtabs").classList.add("hidden");
+        document.getElementById("menu").innerHTML = `
+    <div class="empty-state">
+      <p>We couldn't load the menu right now.</p>
+      <p style="margin-top:6px;">Please ask a staff member, or try again.</p>
+      <button class="btn btn-primary" style="margin-top:14px;" onclick="location.reload()">Try again</button>
+    </div>`;
+        document.getElementById("app").classList.add("ready");
       }
-    });
+      let dirty = false;
 
-    function showToast(msg, duration = 1800) {
-      const t = document.getElementById("toast");
-      t.textContent = msg;
-      t.classList.remove("hidden");
-      clearTimeout(showToast._t);
-      showToast._t = setTimeout(() => t.classList.add("hidden"), duration);
-    }
-
-    /* ---------------- CUSTOMER VIEW ---------------- */
-
-    function render() {
-      document.body.setAttribute(
-        "data-theme",
-        state.business.accent || "sage",
-      );
-      document.getElementById("bizName").textContent =
-        state.business.name || "Your Menu";
-      document.getElementById("bizTagline").textContent =
-        state.business.tagline || "";
-      document.title = state.business.name || "Digital Menu";
-      renderTabs();
-      renderMenu();
-    }
-
-    function renderTabs() {
-      const tabs = document.getElementById("tabs");
-      tabs.innerHTML = "";
-      state.sections.forEach((sec) => {
-        const b = document.createElement("button");
-        b.className = "tab" + (sec.id === activeSection ? " active" : "");
-        b.textContent = sec.title || "Untitled";
-        b.dataset.sid = sec.id;
-        b.onclick = () => selectSection(sec.id);
-        tabs.appendChild(b);
-      });
-      updateTabArrows();
-    }
-
-    function selectSection(id) {
-      activeSection = id;
-      const sec = state.sections.find((s) => s.id === id);
-      activeSubsection = sec && sec.subsections && sec.subsections[0]
-        ? sec.subsections[0].id
-        : null;
-      document.querySelectorAll("#tabs .tab").forEach((btn) => {
-        btn.classList.toggle("active", btn.dataset.sid === id);
-      });
-      renderMenu();
-      const activeBtn = document.querySelector("#tabs .tab.active");
-      if (activeBtn) {
-        activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      function markDirty() {
+        dirty = true;
+        updatePublishUI();
+        render();
       }
-    }
 
-    function renderMenu() {
-      const menu = document.getElementById("menu");
-      const sec = state.sections.find((s) => s.id === activeSection);
-      if (!sec) {
-        menu.innerHTML = '<p class="empty-state">No sections yet. Open owner settings to add your first category.</p>';
-        return;
+      function updatePublishUI() {
+        const btn = document.getElementById("publishLiveBtn");
+        const status = document.getElementById("publishStatus");
+        if (btn) {
+          btn.disabled = !dirty;
+          btn.textContent = dirty ? "Publish live" : "Published";
+        }
+        if (status) {
+          status.textContent = dirty
+            ? "You have unpublished changes"
+            : "Everything is published";
+          status.classList.toggle("dirty", dirty);
+        }
       }
-      const currency = state.business.currency || "$";
-      let html = `<h3 class="section-heading">${escapeHtml(sec.title)}</h3>`;
-      const subs = sec.subsections || [];
-      if (!subs.length) {
-        html += '<p class="empty-state">No subsections in this section yet.</p>';
-      } else {
-        subs.forEach((sub) => {
-          const showSubheading = subs.length > 1 || (sub.title && sub.title.toLowerCase() !== "general");
-          if (showSubheading) {
-            html += `<h4 class="subsection-heading" id="subhead-${sub.id}">${escapeHtml(sub.title)}</h4>`;
+
+      async function publishLive() {
+        const btn = document.getElementById("publishLiveBtn");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Publishing…";
+        }
+        let approxKb = 0;
+        try {
+          // Rough size check — big base64 photos are the most common reason
+          // a publish stalls out on a slow mobile connection.
+          approxKb = Math.round(JSON.stringify(state).length / 1024);
+          console.log("Publishing menu, approx payload size:", approxKb, "KB");
+
+          const timeoutMs = 20000;
+          const timeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("timeout after " + timeoutMs + "ms")),
+              timeoutMs,
+            ),
+          );
+
+          const { data, error } = await Promise.race([
+            supabaseClient.rpc("save_menu", {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPin,
+              p_data: state,
+            }),
+            timeout,
+          ]);
+          if (error || data !== true) {
+            console.error("Publish rejected:", error, data);
+            throw new Error(error ? error.message || "rejected" : "rejected");
           }
-          if (!sub.items || sub.items.length === 0) {
-            html += `<p class="empty-state subsection-empty">No items in ${escapeHtml(sub.title || "this subsection")} yet.</p>`;
-            return;
-          }
-          html += '<div class="items-grid">';
-          sub.items.forEach((it) => {
-            const badges = (it.tags || []).map((t) => TAG_META[t] ?
-              `<span class="badge" title="${TAG_META[t].title}">${TAG_META[t].label}</span>` : "").join("");
-            const priceHtml = it.available === false ? '<span class="sold-out-tag">Неналичен</span>' : currency + escapeHtml(it.price);
-            const descHtml = it.description ? `<p class="item-desc">${escapeHtml(it.description)}</p>` : "";
-            const mediaHtml = it.image ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>` : "";
-            const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
-            const total = vc.likes + vc.dislikes;
-            const hasOverride = it.likePercent !== undefined && it.likePercent !== null && it.likePercent !== "";
-            const percent = hasOverride ? Math.max(0, Math.min(100, Math.round(Number(it.likePercent)))) : total > 0 ? Math.round((vc.likes / total) * 100) : null;
-            const userVote = getUserVote(it.id);
-            const percentLabel = percent === null ? "" : `<span class="vote-percent">${percent}% харесват</span>`;
-            const voteRow = it.available === false ? "" : `<div class="vote-row" data-busy="0">
+          dirty = false;
+          showToast("Published live (" + approxKb + " KB)");
+        } catch (e) {
+          console.error("Publish failed:", e);
+          const isTimeout = String(e.message || "").includes("timeout");
+          const detail = isTimeout
+            ? "timed out after 20s, payload " + approxKb + " KB"
+            : "error: " + (e.message || "unknown");
+          showToast("Publish failed — " + detail, 6000);
+        }
+        updatePublishUI();
+      }
+
+      window.addEventListener("beforeunload", (e) => {
+        if (dirty) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
+
+      function showToast(msg, duration = 1800) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.classList.remove("hidden");
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => t.classList.add("hidden"), duration);
+      }
+
+      /* ---------------- CUSTOMER VIEW ---------------- */
+
+      function render() {
+        document.body.setAttribute(
+          "data-theme",
+          state.business.accent || "sage",
+        );
+        document.getElementById("bizName").textContent =
+          state.business.name || "Your Menu";
+        document.getElementById("bizTagline").textContent =
+          state.business.tagline || "";
+        document.title = state.business.name || "Digital Menu";
+        renderTabs();
+        renderMenu();
+      }
+
+      function renderTabs() {
+        const tabs = document.getElementById("tabs");
+        tabs.innerHTML = "";
+        state.sections.forEach((sec) => {
+          const b = document.createElement("button");
+          b.className = "tab" + (sec.id === activeSection ? " active" : "");
+          b.textContent = sec.title || "Untitled";
+          b.dataset.sid = sec.id;
+          b.onclick = () => selectSection(sec.id);
+          tabs.appendChild(b);
+        });
+        updateTabArrows();
+      }
+
+      function selectSection(id) {
+        activeSection = id;
+        const sec = state.sections.find((s) => s.id === id);
+        activeSubsection =
+          sec && sec.subsections && sec.subsections[0]
+            ? sec.subsections[0].id
+            : null;
+        document.querySelectorAll("#tabs .tab").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.sid === id);
+        });
+        renderMenu();
+        const activeBtn = document.querySelector("#tabs .tab.active");
+        if (activeBtn) {
+          activeBtn.scrollIntoView({
+            behavior: "smooth",
+            inline: "center",
+            block: "nearest",
+          });
+        }
+      }
+
+      function renderMenu() {
+        const menu = document.getElementById("menu");
+        const sec = state.sections.find((s) => s.id === activeSection);
+        if (!sec) {
+          menu.innerHTML =
+            '<p class="empty-state">No sections yet. Open owner settings to add your first category.</p>';
+          return;
+        }
+        const currency = state.business.currency || "$";
+        let html = `<h3 class="section-heading">${escapeHtml(sec.title)}</h3>`;
+        const subs = sec.subsections || [];
+        if (!subs.length) {
+          html +=
+            '<p class="empty-state">No subsections in this section yet.</p>';
+        } else {
+          subs.forEach((sub) => {
+            const showSubheading =
+              subs.length > 1 ||
+              (sub.title && sub.title.toLowerCase() !== "general");
+            if (showSubheading) {
+              html += `<h4 class="subsection-heading" id="subhead-${sub.id}">${escapeHtml(sub.title)}</h4>`;
+            }
+            if (!sub.items || sub.items.length === 0) {
+              html += `<p class="empty-state subsection-empty">No items in ${escapeHtml(sub.title || "this subsection")} yet.</p>`;
+              return;
+            }
+            html += '<div class="items-grid">';
+            sub.items.forEach((it) => {
+              const badges = (it.tags || [])
+                .map((t) =>
+                  TAG_META[t]
+                    ? `<span class="badge" title="${TAG_META[t].title}">${TAG_META[t].label}</span>`
+                    : "",
+                )
+                .join("");
+              const priceHtml =
+                it.available === false
+                  ? '<span class="sold-out-tag">Неналичен</span>'
+                  : currency + escapeHtml(it.price);
+              const descHtml = it.description
+                ? `<p class="item-desc">${escapeHtml(it.description)}</p>`
+                : "";
+              const mediaHtml = it.image
+                ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>`
+                : "";
+              const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
+              const total = vc.likes + vc.dislikes;
+              const hasOverride =
+                it.likePercent !== undefined &&
+                it.likePercent !== null &&
+                it.likePercent !== "";
+              const percent = hasOverride
+                ? Math.max(0, Math.min(100, Math.round(Number(it.likePercent))))
+                : total > 0
+                  ? Math.round((vc.likes / total) * 100)
+                  : null;
+              const userVote = getUserVote(it.id);
+              const percentLabel =
+                percent === null
+                  ? ""
+                  : `<span class="vote-percent">${percent}% харесват</span>`;
+              const voteRow =
+                it.available === false
+                  ? ""
+                  : `<div class="vote-row" data-busy="0">
   <button class="vote-btn like ${userVote === "like" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Like this item" onclick="castVote('${it.id}','like',this)">👍</button>
   <button class="vote-btn dislike ${userVote === "dislike" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Dislike this item" onclick="castVote('${it.id}','dislike',this)">👎</button>
   ${percentLabel}
 </div>`;
-            html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
+              html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
               ${mediaHtml}<div class="item-body"><div class="item-top"><span class="item-name">${escapeHtml(it.name)}</span><span class="item-badges">${badges}</span></div>
              ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div></div></div>`;
+            });
+            html += "</div>";
           });
-          html += '</div>';
+        }
+        menu.innerHTML = html;
+        renderSubtabs(sec);
+      }
+
+      let subtabObserver = null;
+      let subtabProgrammaticScroll = false;
+      let subtabScrollTimer = null;
+
+      function scrollSubtabPillIntoView(subtabsEl, btn) {
+        // Horizontal-only scroll of the pill row itself, so this can never
+        // also nudge the page's vertical scroll (which is what caused the
+        // "jumps back up" bug with scrollIntoView + block:"nearest").
+        const targetLeft =
+          btn.offsetLeft - (subtabsEl.clientWidth - btn.offsetWidth) / 2;
+        subtabsEl.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: "smooth",
         });
       }
-      menu.innerHTML = html;
-      renderSubtabs(sec);
-    }
 
-    let subtabObserver = null;
-    let subtabProgrammaticScroll = false;
-    let subtabScrollTimer = null;
-
-    function scrollSubtabPillIntoView(subtabsEl, btn) {
-      // Horizontal-only scroll of the pill row itself, so this can never
-      // also nudge the page's vertical scroll (which is what caused the
-      // "jumps back up" bug with scrollIntoView + block:"nearest").
-      const targetLeft =
-        btn.offsetLeft - (subtabsEl.clientWidth - btn.offsetWidth) / 2;
-      subtabsEl.scrollTo({
-        left: Math.max(0, targetLeft),
-        behavior: "smooth",
-      });
-    }
-
-    function setActiveSubtab(subtabsEl, btn) {
-      subtabsEl
-        .querySelectorAll(".subtab")
-        .forEach((b) => b.classList.toggle("active", b === btn));
-      scrollSubtabPillIntoView(subtabsEl, btn);
-    }
-
-    function renderSubtabs(sec) {
-      const subtabsEl = document.getElementById("subtabs");
-      const subs = (sec && sec.subsections || []).filter((sub) => sub.items && sub.items.length);
-      if (subtabObserver) {
-        subtabObserver.disconnect();
-        subtabObserver = null;
+      function setActiveSubtab(subtabsEl, btn) {
+        subtabsEl
+          .querySelectorAll(".subtab")
+          .forEach((b) => b.classList.toggle("active", b === btn));
+        scrollSubtabPillIntoView(subtabsEl, btn);
       }
-      if (subtabScrollTimer) {
-        clearTimeout(subtabScrollTimer);
-        subtabScrollTimer = null;
+
+      function renderSubtabs(sec) {
+        const subtabsEl = document.getElementById("subtabs");
+        const subs = ((sec && sec.subsections) || []).filter(
+          (sub) => sub.items && sub.items.length,
+        );
+        if (subtabObserver) {
+          subtabObserver.disconnect();
+          subtabObserver = null;
+        }
+        if (subtabScrollTimer) {
+          clearTimeout(subtabScrollTimer);
+          subtabScrollTimer = null;
+        }
+        subtabProgrammaticScroll = false;
+        if (subs.length < 2) {
+          subtabsEl.classList.add("hidden");
+          subtabsEl.innerHTML = "";
+          return;
+        }
+        subtabsEl.classList.remove("hidden");
+        subtabsEl.innerHTML = subs
+          .map(
+            (sub, i) =>
+              `<button type="button" class="subtab ${i === 0 ? "active" : ""}" data-ssid="${sub.id}">${escapeHtml(sub.title)}</button>`,
+          )
+          .join("");
+        subtabsEl.querySelectorAll(".subtab").forEach((btn) => {
+          btn.onclick = () => {
+            const heading = document.getElementById(
+              "subhead-" + btn.dataset.ssid,
+            );
+            // Mute the scroll-spy observer for the duration of this smooth
+            // scroll so it can't "correct" us mid-flight to a heading that
+            // briefly crosses the threshold on the way down.
+            subtabProgrammaticScroll = true;
+            if (subtabScrollTimer) clearTimeout(subtabScrollTimer);
+            subtabScrollTimer = setTimeout(() => {
+              subtabProgrammaticScroll = false;
+            }, 700);
+            if (heading)
+              heading.scrollIntoView({ behavior: "smooth", block: "start" });
+            setActiveSubtab(subtabsEl, btn);
+          };
+        });
+        subtabObserver = new IntersectionObserver(
+          (entries) => {
+            if (subtabProgrammaticScroll) return;
+            entries.forEach((entry) => {
+              if (!entry.isIntersecting) return;
+              const ssid = entry.target.id.replace("subhead-", "");
+              const btn = subtabsEl.querySelector(
+                `.subtab[data-ssid="${ssid}"]`,
+              );
+              if (btn) setActiveSubtab(subtabsEl, btn);
+            });
+          },
+          { rootMargin: "-45% 0px -50% 0px" },
+        );
+        subs.forEach((sub) => {
+          const heading = document.getElementById("subhead-" + sub.id);
+          if (heading) subtabObserver.observe(heading);
+        });
       }
-      subtabProgrammaticScroll = false;
-      if (subs.length < 2) {
-        subtabsEl.classList.add("hidden");
-        subtabsEl.innerHTML = "";
-        return;
+
+      /* ---------------- ADMIN ---------------- */
+
+      let scrollLockY = 0;
+
+      document.getElementById("adminToggle").onclick = () => {
+        document.getElementById("overlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderAdmin();
+      };
+
+      function closeAdmin() {
+        document.getElementById("overlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
       }
-      subtabsEl.classList.remove("hidden");
-      subtabsEl.innerHTML = subs
-        .map((sub, i) => `<button type="button" class="subtab ${i === 0 ? "active" : ""}" data-ssid="${sub.id}">${escapeHtml(sub.title)}</button>`)
-        .join("");
-      subtabsEl.querySelectorAll(".subtab").forEach((btn) => {
-        btn.onclick = () => {
-          const heading = document.getElementById("subhead-" + btn.dataset.ssid);
-          // Mute the scroll-spy observer for the duration of this smooth
-          // scroll so it can't "correct" us mid-flight to a heading that
-          // briefly crosses the threshold on the way down.
-          subtabProgrammaticScroll = true;
-          if (subtabScrollTimer) clearTimeout(subtabScrollTimer);
-          subtabScrollTimer = setTimeout(() => {
-            subtabProgrammaticScroll = false;
-          }, 700);
-          if (heading) heading.scrollIntoView({ behavior: "smooth", block: "start" });
-          setActiveSubtab(subtabsEl, btn);
-        };
-      });
-      subtabObserver = new IntersectionObserver(
-        (entries) => {
-          if (subtabProgrammaticScroll) return;
-          entries.forEach((entry) => {
-            if (!entry.isIntersecting) return;
-            const ssid = entry.target.id.replace("subhead-", "");
-            const btn = subtabsEl.querySelector(`.subtab[data-ssid="${ssid}"]`);
-            if (btn) setActiveSubtab(subtabsEl, btn);
-          });
-        },
-        { rootMargin: "-45% 0px -50% 0px" },
-      );
-      subs.forEach((sub) => {
-        const heading = document.getElementById("subhead-" + sub.id);
-        if (heading) subtabObserver.observe(heading);
-      });
-    }
 
-    /* ---------------- ADMIN ---------------- */
-
-    let scrollLockY = 0;
-
-    document.getElementById("adminToggle").onclick = () => {
-      document.getElementById("overlay").classList.remove("hidden");
-      scrollLockY = window.scrollY;
-      document.body.style.overflow = "hidden";
-      document.body.style.touchAction = "none";
-      renderAdmin();
-    };
-
-    function closeAdmin() {
-      document.getElementById("overlay").classList.add("hidden");
-      document.body.style.overflow = "";
-      document.body.style.touchAction = "";
-      window.scrollTo(0, scrollLockY);
-    }
-
-    function openPhoto(url, sourceEl) {
-      const img = document.getElementById("photoLightboxImg");
-      const box = document.getElementById("photoLightbox");
-      img.src = url;
-      box.classList.remove("hidden");
-      if (sourceEl) {
-        const r = sourceEl.getBoundingClientRect();
-        const originX = r.left + r.width / 2;
-        const originY = r.top + r.height / 2;
-        img.style.transformOrigin = `${originX}px ${originY}px`;
+      function openPhoto(url, sourceEl) {
+        const img = document.getElementById("photoLightboxImg");
+        const box = document.getElementById("photoLightbox");
+        img.src = url;
+        box.classList.remove("hidden");
+        if (sourceEl) {
+          const r = sourceEl.getBoundingClientRect();
+          const originX = r.left + r.width / 2;
+          const originY = r.top + r.height / 2;
+          img.style.transformOrigin = `${originX}px ${originY}px`;
+        }
+        requestAnimationFrame(() => box.classList.add("open"));
       }
-      requestAnimationFrame(() => box.classList.add("open"));
-    }
-    function closePhoto() {
-      const box = document.getElementById("photoLightbox");
-      box.classList.remove("open");
-      setTimeout(() => box.classList.add("hidden"), 280);
-    }
-
-    document.getElementById("overlay").addEventListener("click", (e) => {
-      if (e.target.id === "overlay") closeAdmin();
-    });
-    const tabsLeftBtn = document.getElementById("tabsLeft");
-    const tabsRightBtn = document.getElementById("tabsRight");
-    const tabsEl = document.getElementById("tabs");
-
-    tabsLeftBtn.onclick = () => {
-      tabsEl.scrollBy({
-        left: -140,
-        behavior: "smooth",
-      });
-    };
-    tabsRightBtn.onclick = () => {
-      tabsEl.scrollBy({
-        left: 140,
-        behavior: "smooth",
-      });
-    };
-
-    function updateTabArrows() {
-      const maxScroll = tabsEl.scrollWidth - tabsEl.clientWidth;
-      tabsLeftBtn.classList.toggle("hidden", tabsEl.scrollLeft <= 2);
-      tabsRightBtn.classList.toggle(
-        "hidden",
-        tabsEl.scrollLeft >= maxScroll - 2,
-      );
-    }
-    tabsEl.addEventListener("scroll", updateTabArrows);
-
-    const scrollTopBtn = document.getElementById("scrollTopBtn");
-    window.addEventListener("scroll", () => {
-      scrollTopBtn.classList.toggle("hidden", window.scrollY < 400);
-    });
-    scrollTopBtn.onclick = () => {
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
-    };
-
-    function renderAdmin() {
-      const panel = document.getElementById("panel");
-      const prevScrollEl = panel.querySelector(".panel-scroll");
-      const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
-
-      // Removing the focused button (arrow/drag-handle) mid-rebuild makes
-      // some browsers auto-scroll the container to "find" the next focus
-      // target. Blurring first prevents that.
-      if (document.activeElement && panel.contains(document.activeElement)) {
-        document.activeElement.blur();
+      function closePhoto() {
+        const box = document.getElementById("photoLightbox");
+        box.classList.remove("open");
+        setTimeout(() => box.classList.add("hidden"), 280);
       }
-      if (!unlocked) {
-        panel.innerHTML = `
+
+      document.getElementById("overlay").addEventListener("click", (e) => {
+        if (e.target.id === "overlay") closeAdmin();
+      });
+      const tabsLeftBtn = document.getElementById("tabsLeft");
+      const tabsRightBtn = document.getElementById("tabsRight");
+      const tabsEl = document.getElementById("tabs");
+
+      tabsLeftBtn.onclick = () => {
+        tabsEl.scrollBy({
+          left: -140,
+          behavior: "smooth",
+        });
+      };
+      tabsRightBtn.onclick = () => {
+        tabsEl.scrollBy({
+          left: 140,
+          behavior: "smooth",
+        });
+      };
+
+      function updateTabArrows() {
+        const maxScroll = tabsEl.scrollWidth - tabsEl.clientWidth;
+        tabsLeftBtn.classList.toggle("hidden", tabsEl.scrollLeft <= 2);
+        tabsRightBtn.classList.toggle(
+          "hidden",
+          tabsEl.scrollLeft >= maxScroll - 2,
+        );
+      }
+      tabsEl.addEventListener("scroll", updateTabArrows);
+
+      const scrollTopBtn = document.getElementById("scrollTopBtn");
+      window.addEventListener("scroll", () => {
+        scrollTopBtn.classList.toggle("hidden", window.scrollY < 400);
+      });
+      scrollTopBtn.onclick = () => {
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      };
+
+      function renderAdmin() {
+        const panel = document.getElementById("panel");
+        const prevScrollEl = panel.querySelector(".panel-scroll");
+        const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
+
+        // Removing the focused button (arrow/drag-handle) mid-rebuild makes
+        // some browsers auto-scroll the container to "find" the next focus
+        // target. Blurring first prevents that.
+        if (document.activeElement && panel.contains(document.activeElement)) {
+          document.activeElement.blur();
+        }
+        if (!unlocked) {
+          panel.innerHTML = `
       <div class="panel-header">
         <h2>Owner access</h2>
         <button class="icon-btn" onclick="closeAdmin()">✕</button>
@@ -900,10 +1020,10 @@
 </div>
         </div>
       </div>`;
-        return;
-      }
+          return;
+        }
 
-      panel.innerHTML = `
+        panel.innerHTML = `
     <div class="panel-header">
       <h2>Edit menu</h2>
       <button class="icon-btn" onclick="closeAdmin()">✕</button>
@@ -952,145 +1072,140 @@
     </div>
   `;
 
-      document.getElementById("fName").onchange = (e) => {
-        state.business.name = e.target.value.trim() || "Your Menu";
-        markDirty();
-      };
-      document.getElementById("fTagline").onchange = (e) => {
-        state.business.tagline = e.target.value.trim();
-        markDirty();
-      };
-      document.getElementById("fCurrency").onchange = (e) => {
-        state.business.currency = e.target.value.trim() || "$";
-        markDirty();
-      };
-      document.getElementById("fUrl").onchange = (e) => {
-        state.publishedUrl = e.target.value.trim();
-        markDirty();
-      };
-
-      // theme dots
-      const themeRow = document.getElementById("themeRow");
-      Object.keys(THEME_NAMES).forEach((key) => {
-        const dot = document.createElement("div");
-        dot.className =
-          "theme-dot " +
-          key +
-          (state.business.accent === key ? " selected" : "");
-        dot.title = THEME_NAMES[key];
-        dot.onclick = () => {
-          state.business.accent = key;
+        document.getElementById("fName").onchange = (e) => {
+          state.business.name = e.target.value.trim() || "Your Menu";
           markDirty();
-          renderAdmin();
-          if (state.publishedUrl) renderQrPreview();
         };
-        themeRow.appendChild(dot);
-      });
+        document.getElementById("fTagline").onchange = (e) => {
+          state.business.tagline = e.target.value.trim();
+          markDirty();
+        };
+        document.getElementById("fCurrency").onchange = (e) => {
+          state.business.currency = e.target.value.trim() || "$";
+          markDirty();
+        };
+        document.getElementById("fUrl").onchange = (e) => {
+          state.publishedUrl = e.target.value.trim();
+          markDirty();
+        };
 
-      renderSectionsAdmin();
-      if (state.publishedUrl) renderQrPreview();
-
-      // Restore after the browser has laid out/painted the new content —
-      // setting scrollTop synchronously here loses the race in some browsers.
-      requestAnimationFrame(() => {
-        const scrollEl = panel.querySelector(".panel-scroll");
-        if (scrollEl) scrollEl.scrollTop = prevScrollTop;
-      });
-    }
-
-    async function tryUnlock() {
-      const val = document.getElementById("pinInput").value.trim();
-      try {
-        const {
-          data,
-          error
-        } = await supabaseClient.rpc("check_pin", {
-          p_slug: MENU_SLUG,
-          p_pin: val,
+        // theme dots
+        const themeRow = document.getElementById("themeRow");
+        Object.keys(THEME_NAMES).forEach((key) => {
+          const dot = document.createElement("div");
+          dot.className =
+            "theme-dot " +
+            key +
+            (state.business.accent === key ? " selected" : "");
+          dot.title = THEME_NAMES[key];
+          dot.onclick = () => {
+            state.business.accent = key;
+            markDirty();
+            renderAdmin();
+            if (state.publishedUrl) renderQrPreview();
+          };
+          themeRow.appendChild(dot);
         });
-        if (error) throw error;
-        if (data === true) {
-          sessionPin = val;
-          unlocked = true;
-          renderAdmin();
-        } else {
-          showToast("Incorrect PIN");
+
+        renderSectionsAdmin();
+        if (state.publishedUrl) renderQrPreview();
+
+        // Restore after the browser has laid out/painted the new content —
+        // setting scrollTop synchronously here loses the race in some browsers.
+        requestAnimationFrame(() => {
+          const scrollEl = panel.querySelector(".panel-scroll");
+          if (scrollEl) scrollEl.scrollTop = prevScrollTop;
+        });
+      }
+
+      async function tryUnlock() {
+        const val = document.getElementById("pinInput").value.trim();
+        try {
+          const { data, error } = await supabaseClient.rpc("check_pin", {
+            p_slug: MENU_SLUG,
+            p_pin: val,
+          });
+          if (error) throw error;
+          if (data === true) {
+            sessionPin = val;
+            unlocked = true;
+            renderAdmin();
+          } else {
+            showToast("Incorrect PIN");
+          }
+        } catch (e) {
+          showToast("Could not verify PIN — check connection");
         }
-      } catch (e) {
-        showToast("Could not verify PIN — check connection");
       }
-    }
 
-    function lockAdmin() {
-      unlocked = false;
-      sessionPin = null;
-      renderAdmin();
-    }
+      function lockAdmin() {
+        unlocked = false;
+        sessionPin = null;
+        renderAdmin();
+      }
 
-    async function updatePin() {
-      const newPin = document.getElementById("fPin").value.trim();
-      if (!newPin) {
-        showToast("Enter a new PIN first");
-        return;
-      }
-      if (newPin === sessionPin) {
-        showToast("That's already the current PIN");
-        return;
-      }
-      const {
-        data,
-        error
-      } = await supabaseClient.rpc("change_pin", {
-        p_slug: MENU_SLUG,
-        p_old_pin: sessionPin,
-        p_new_pin: newPin,
-      });
-      if (!error && data === true) {
-        sessionPin = newPin;
-        showToast("PIN updated");
-      } else showToast("Could not update PIN");
-    }
-
-    function renderQrPreview() {
-      const box = document.getElementById("qrcode");
-      if (!box) return;
-      box.innerHTML = "";
-      const url = state.publishedUrl;
-      if (!url) {
-        box.innerHTML =
-          '<p class="url-note">Add a URL above to generate a code.</p>';
-        return;
-      }
-      try {
-        new QRCode(box, {
-          text: url,
-          width: 170,
-          height: 170,
-          colorDark: getComputedStyle(document.body)
-            .getPropertyValue("--accent")
-            .trim() || "#000000",
-          colorLight: "#FBF8F1",
+      async function updatePin() {
+        const newPin = document.getElementById("fPin").value.trim();
+        if (!newPin) {
+          showToast("Enter a new PIN first");
+          return;
+        }
+        if (newPin === sessionPin) {
+          showToast("That's already the current PIN");
+          return;
+        }
+        const { data, error } = await supabaseClient.rpc("change_pin", {
+          p_slug: MENU_SLUG,
+          p_old_pin: sessionPin,
+          p_new_pin: newPin,
         });
-      } catch (e) {
-        box.innerHTML = '<p class="url-note">Could not generate QR code.</p>';
+        if (!error && data === true) {
+          sessionPin = newPin;
+          showToast("PIN updated");
+        } else showToast("Could not update PIN");
       }
-    }
 
-    function updateQr() {
-      const url = document.getElementById("fUrl").value.trim();
-      const changed = url !== state.publishedUrl;
-      state.publishedUrl = url;
-      renderQrPreview();
-      if (changed) markDirty();
-    }
+      function renderQrPreview() {
+        const box = document.getElementById("qrcode");
+        if (!box) return;
+        box.innerHTML = "";
+        const url = state.publishedUrl;
+        if (!url) {
+          box.innerHTML =
+            '<p class="url-note">Add a URL above to generate a code.</p>';
+          return;
+        }
+        try {
+          new QRCode(box, {
+            text: url,
+            width: 170,
+            height: 170,
+            colorDark:
+              getComputedStyle(document.body)
+                .getPropertyValue("--accent")
+                .trim() || "#000000",
+            colorLight: "#FBF8F1",
+          });
+        } catch (e) {
+          box.innerHTML = '<p class="url-note">Could not generate QR code.</p>';
+        }
+      }
 
-    function renderSectionsAdmin() {
-      const wrap = document.getElementById("sectionsAdmin");
-      wrap.innerHTML = "";
-      state.sections.forEach((sec) => {
-        const card = document.createElement("div");
-        card.className = "admin-section-card";
-        card.innerHTML = `
+      function updateQr() {
+        const url = document.getElementById("fUrl").value.trim();
+        const changed = url !== state.publishedUrl;
+        state.publishedUrl = url;
+        renderQrPreview();
+        if (changed) markDirty();
+      }
+
+      function renderSectionsAdmin() {
+        const wrap = document.getElementById("sectionsAdmin");
+        wrap.innerHTML = "";
+        state.sections.forEach((sec) => {
+          const card = document.createElement("div");
+          card.className = "admin-section-card";
+          card.innerHTML = `
           <div class="admin-section-card-head">
             <div class="section-type-label">Category</div>
             <input type="text" value="${escapeHtml(sec.title)}" data-role="sectionTitle" data-sid="${sec.id}" placeholder="Category name (e.g. Alcohols)">
@@ -1101,46 +1216,63 @@
           <div class="subsections-admin" data-role="subsectionsWrap"></div>
           <button class="btn btn-sm" data-role="addSubsection" data-sid="${sec.id}">+ Add subsection</button>
         `;
-        wrap.appendChild(card);
-        const subsWrap = card.querySelector('[data-role="subsectionsWrap"]');
-        (sec.subsections || []).forEach((sub) => buildSubsectionAdmin(sec, sub, subsWrap));
-      });
+          wrap.appendChild(card);
+          const subsWrap = card.querySelector('[data-role="subsectionsWrap"]');
+          (sec.subsections || []).forEach((sub) =>
+            buildSubsectionAdmin(sec, sub, subsWrap),
+          );
+        });
 
-      wrap.querySelectorAll('[data-role="sectionTitle"]').forEach((el) => {
-        el.onchange = () => {
-          const sec = state.sections.find((s) => s.id === el.dataset.sid);
-          if (sec) { sec.title = el.value.trim() || "Untitled"; markDirty(); }
-        };
-      });
-      wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
-        el.onclick = () => {
-          state.sections = state.sections.filter((s) => s.id !== el.dataset.sid);
-          if (activeSection === el.dataset.sid) {
-            activeSection = state.sections[0] ? state.sections[0].id : null;
-            const first = state.sections[0];
-            activeSubsection = first && first.subsections[0] ? first.subsections[0].id : null;
-          }
-          markDirty(); renderAdmin();
-        };
-      });
-      wrap.querySelectorAll('[data-role="moveUp"]').forEach((el) => el.onclick = () => moveSection(el.dataset.sid, -1));
-      wrap.querySelectorAll('[data-role="moveDown"]').forEach((el) => el.onclick = () => moveSection(el.dataset.sid, 1));
-      wrap.querySelectorAll('[data-role="addSubsection"]').forEach((el) => {
-        el.onclick = () => {
-          const sec = state.sections.find((s) => s.id === el.dataset.sid);
-          if (!sec) return;
-          const sub = { id: uid("ss"), title: "New subsection", items: [] };
-          sec.subsections = sec.subsections || [];
-          sec.subsections.push(sub);
-          expandedItems.clear(); markDirty(); renderAdmin();
-        };
-      });
-    }
+        wrap.querySelectorAll('[data-role="sectionTitle"]').forEach((el) => {
+          el.onchange = () => {
+            const sec = state.sections.find((s) => s.id === el.dataset.sid);
+            if (sec) {
+              sec.title = el.value.trim() || "Untitled";
+              markDirty();
+            }
+          };
+        });
+        wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
+          el.onclick = () => {
+            state.sections = state.sections.filter(
+              (s) => s.id !== el.dataset.sid,
+            );
+            if (activeSection === el.dataset.sid) {
+              activeSection = state.sections[0] ? state.sections[0].id : null;
+              const first = state.sections[0];
+              activeSubsection =
+                first && first.subsections[0] ? first.subsections[0].id : null;
+            }
+            markDirty();
+            renderAdmin();
+          };
+        });
+        wrap
+          .querySelectorAll('[data-role="moveUp"]')
+          .forEach(
+            (el) => (el.onclick = () => moveSection(el.dataset.sid, -1)),
+          );
+        wrap
+          .querySelectorAll('[data-role="moveDown"]')
+          .forEach((el) => (el.onclick = () => moveSection(el.dataset.sid, 1)));
+        wrap.querySelectorAll('[data-role="addSubsection"]').forEach((el) => {
+          el.onclick = () => {
+            const sec = state.sections.find((s) => s.id === el.dataset.sid);
+            if (!sec) return;
+            const sub = { id: uid("ss"), title: "New subsection", items: [] };
+            sec.subsections = sec.subsections || [];
+            sec.subsections.push(sub);
+            expandedItems.clear();
+            markDirty();
+            renderAdmin();
+          };
+        });
+      }
 
-    function buildSubsectionAdmin(sec, sub, parent) {
-      const card = document.createElement("div");
-      card.className = "admin-subsection-card";
-      card.innerHTML = `
+      function buildSubsectionAdmin(sec, sub, parent) {
+        const card = document.createElement("div");
+        card.className = "admin-subsection-card";
+        card.innerHTML = `
         <div class="admin-subsection-head">
           <input type="text" value="${escapeHtml(sub.title)}" data-role="subsectionTitle" placeholder="Subsection name (e.g. Wine, Beer, Cocktails)">
           <button class="btn btn-sm" data-role="subMoveUp" title="Move up">↑</button>
@@ -1150,120 +1282,175 @@
         <div class="subsection-items" data-role="itemsWrap"></div>
         <button class="btn btn-sm" data-role="addItem">+ Add item</button>
       `;
-      parent.appendChild(card);
-      const itemsWrap = card.querySelector('[data-role="itemsWrap"]');
-      (sub.items || []).forEach((it) => itemsWrap.appendChild(buildItemCard(sec.id, sub.id, it)));
+        parent.appendChild(card);
+        const itemsWrap = card.querySelector('[data-role="itemsWrap"]');
+        (sub.items || []).forEach((it) =>
+          itemsWrap.appendChild(buildItemCard(sec.id, sub.id, it)),
+        );
 
-      itemsWrap.addEventListener("dragover", (e) => {
-        if (!dragState || dragState.sectionId !== sec.id || dragState.subsectionId !== sub.id) return;
-        e.preventDefault();
-        const dragging = itemsWrap.querySelector(".admin-item-card.dragging");
-        if (!dragging) return;
-        const afterEl = getDragAfterElement(itemsWrap, e.clientY);
-        if (afterEl == null) itemsWrap.appendChild(dragging);
-        else if (afterEl !== dragging) itemsWrap.insertBefore(dragging, afterEl);
-      });
-      itemsWrap.addEventListener("drop", (e) => {
-        if (!dragState || dragState.sectionId !== sec.id || dragState.subsectionId !== sub.id) return;
-        e.preventDefault();
-        const newOrder = Array.from(itemsWrap.querySelectorAll(".admin-item-card")).map((el) => el.dataset.itemId);
-        sub.items.sort((a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id));
-        markDirty(); dragState = null;
-      });
+        itemsWrap.addEventListener("dragover", (e) => {
+          if (
+            !dragState ||
+            dragState.sectionId !== sec.id ||
+            dragState.subsectionId !== sub.id
+          )
+            return;
+          e.preventDefault();
+          const dragging = itemsWrap.querySelector(".admin-item-card.dragging");
+          if (!dragging) return;
+          const afterEl = getDragAfterElement(itemsWrap, e.clientY);
+          if (afterEl == null) itemsWrap.appendChild(dragging);
+          else if (afterEl !== dragging)
+            itemsWrap.insertBefore(dragging, afterEl);
+        });
+        itemsWrap.addEventListener("drop", (e) => {
+          if (
+            !dragState ||
+            dragState.sectionId !== sec.id ||
+            dragState.subsectionId !== sub.id
+          )
+            return;
+          e.preventDefault();
+          const newOrder = Array.from(
+            itemsWrap.querySelectorAll(".admin-item-card"),
+          ).map((el) => el.dataset.itemId);
+          sub.items.sort(
+            (a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id),
+          );
+          markDirty();
+          dragState = null;
+        });
 
-      const title = card.querySelector('[data-role="subsectionTitle"]');
-      title.onchange = () => { sub.title = title.value.trim() || "Untitled subsection"; markDirty(); };
-      card.querySelector('[data-role="subMoveUp"]').onclick = () => moveSubsection(sec.id, sub.id, -1);
-      card.querySelector('[data-role="subMoveDown"]').onclick = () => moveSubsection(sec.id, sub.id, 1);
-      card.querySelector('[data-role="deleteSubsection"]').onclick = () => {
-        if ((sec.subsections || []).length === 1) { showToast("Keep at least one subsection in a category"); return; }
-        sec.subsections = sec.subsections.filter((s) => s.id !== sub.id);
-        markDirty(); renderAdmin();
-      };
-      card.querySelector('[data-role="addItem"]').onclick = () => {
-        sub.items = sub.items || [];
-        const newItem = { id: uid("i"), name: "New item", description: "", price: "0.00", tags: [], available: true };
-        sub.items.push(newItem); expandedItems.add(newItem.id); markDirty(); renderAdmin();
-      };
-    }
-
-    function getSubsection(sectionId, subsectionId) {
-      const sec = state.sections.find((s) => s.id === sectionId);
-      return sec ? (sec.subsections || []).find((s) => s.id === subsectionId) : null;
-    }
-
-    function moveSubsection(sectionId, id, dir) {
-      const sec = state.sections.find((s) => s.id === sectionId);
-      if (!sec) return;
-      const idx = sec.subsections.findIndex((s) => s.id === id), newIdx = idx + dir;
-      if (idx < 0 || newIdx < 0 || newIdx >= sec.subsections.length) return;
-      [sec.subsections[idx], sec.subsections[newIdx]] = [sec.subsections[newIdx], sec.subsections[idx]];
-      markDirty(); renderAdmin();
-    }
-
-    function moveSection(id, dir) {
-      const idx = state.sections.findIndex((s) => s.id === id), newIdx = idx + dir;
-      if (idx < 0 || newIdx < 0 || newIdx >= state.sections.length) return;
-      [state.sections[idx], state.sections[newIdx]] = [state.sections[newIdx], state.sections[idx]];
-      markDirty(); renderAdmin();
-    }
-
-    function moveItem(sectionId, subsectionId, itemId, dir) {
-      const sub = getSubsection(sectionId, subsectionId);
-      if (!sub) return;
-      const idx = sub.items.findIndex((i) => i.id === itemId), newIdx = idx + dir;
-      if (idx < 0 || newIdx < 0 || newIdx >= sub.items.length) return;
-      [sub.items[idx], sub.items[newIdx]] = [sub.items[newIdx], sub.items[idx]];
-      markDirty(); renderAdmin();
-    }
-
-    // Given a container of draggable item cards and the pointer's Y position,
-    // returns the card that should come immediately after the dragged card
-    // (or null if it belongs at the end).
-    function getDragAfterElement(container, y) {
-      const els = [
-        ...container.querySelectorAll(".admin-item-card:not(.dragging)"),
-      ];
-      return els.reduce(
-        (closest, child) => {
-          const box = child.getBoundingClientRect();
-          const offset = y - box.top - box.height / 2;
-          if (offset < 0 && offset > closest.offset) {
-            return {
-              offset,
-              element: child
-            };
+        const title = card.querySelector('[data-role="subsectionTitle"]');
+        title.onchange = () => {
+          sub.title = title.value.trim() || "Untitled subsection";
+          markDirty();
+        };
+        card.querySelector('[data-role="subMoveUp"]').onclick = () =>
+          moveSubsection(sec.id, sub.id, -1);
+        card.querySelector('[data-role="subMoveDown"]').onclick = () =>
+          moveSubsection(sec.id, sub.id, 1);
+        card.querySelector('[data-role="deleteSubsection"]').onclick = () => {
+          if ((sec.subsections || []).length === 1) {
+            showToast("Keep at least one subsection in a category");
+            return;
           }
-          return closest;
-        }, {
-          offset: -Infinity,
-          element: null
-        },
-      ).element;
-    }
-
-    // While touch-dragging near the top/bottom of the scrollable panel,
-    // nudge it to scroll so you can drop items further up/down the list.
-    function autoScrollPanelScroll(clientY) {
-      const scrollEl = document.querySelector("#panel .panel-scroll");
-      if (!scrollEl) return;
-      const rect = scrollEl.getBoundingClientRect();
-      const edge = 60;
-      let speed = 0;
-      if (clientY < rect.top + edge) {
-        speed = -Math.ceil((rect.top + edge - clientY) / 4);
-      } else if (clientY > rect.bottom - edge) {
-        speed = Math.ceil((clientY - (rect.bottom - edge)) / 4);
+          sec.subsections = sec.subsections.filter((s) => s.id !== sub.id);
+          markDirty();
+          renderAdmin();
+        };
+        card.querySelector('[data-role="addItem"]').onclick = () => {
+          sub.items = sub.items || [];
+          const newItem = {
+            id: uid("i"),
+            name: "New item",
+            description: "",
+            price: "0.00",
+            tags: [],
+            available: true,
+          };
+          sub.items.push(newItem);
+          expandedItems.add(newItem.id);
+          markDirty();
+          renderAdmin();
+        };
       }
-      if (speed !== 0) scrollEl.scrollTop += speed;
-    }
 
-    function buildItemCard(sectionId, subsectionId, item) {
-      const isOpen = expandedItems.has(item.id);
-      const div = document.createElement("div");
-      div.className = "admin-item-card" + (isOpen ? "" : " collapsed");
-      div.dataset.itemId = item.id;
-      div.innerHTML = `
+      function getSubsection(sectionId, subsectionId) {
+        const sec = state.sections.find((s) => s.id === sectionId);
+        return sec
+          ? (sec.subsections || []).find((s) => s.id === subsectionId)
+          : null;
+      }
+
+      function moveSubsection(sectionId, id, dir) {
+        const sec = state.sections.find((s) => s.id === sectionId);
+        if (!sec) return;
+        const idx = sec.subsections.findIndex((s) => s.id === id),
+          newIdx = idx + dir;
+        if (idx < 0 || newIdx < 0 || newIdx >= sec.subsections.length) return;
+        [sec.subsections[idx], sec.subsections[newIdx]] = [
+          sec.subsections[newIdx],
+          sec.subsections[idx],
+        ];
+        markDirty();
+        renderAdmin();
+      }
+
+      function moveSection(id, dir) {
+        const idx = state.sections.findIndex((s) => s.id === id),
+          newIdx = idx + dir;
+        if (idx < 0 || newIdx < 0 || newIdx >= state.sections.length) return;
+        [state.sections[idx], state.sections[newIdx]] = [
+          state.sections[newIdx],
+          state.sections[idx],
+        ];
+        markDirty();
+        renderAdmin();
+      }
+
+      function moveItem(sectionId, subsectionId, itemId, dir) {
+        const sub = getSubsection(sectionId, subsectionId);
+        if (!sub) return;
+        const idx = sub.items.findIndex((i) => i.id === itemId),
+          newIdx = idx + dir;
+        if (idx < 0 || newIdx < 0 || newIdx >= sub.items.length) return;
+        [sub.items[idx], sub.items[newIdx]] = [
+          sub.items[newIdx],
+          sub.items[idx],
+        ];
+        markDirty();
+        renderAdmin();
+      }
+
+      // Given a container of draggable item cards and the pointer's Y position,
+      // returns the card that should come immediately after the dragged card
+      // (or null if it belongs at the end).
+      function getDragAfterElement(container, y) {
+        const els = [
+          ...container.querySelectorAll(".admin-item-card:not(.dragging)"),
+        ];
+        return els.reduce(
+          (closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+              return {
+                offset,
+                element: child,
+              };
+            }
+            return closest;
+          },
+          {
+            offset: -Infinity,
+            element: null,
+          },
+        ).element;
+      }
+
+      // While touch-dragging near the top/bottom of the scrollable panel,
+      // nudge it to scroll so you can drop items further up/down the list.
+      function autoScrollPanelScroll(clientY) {
+        const scrollEl = document.querySelector("#panel .panel-scroll");
+        if (!scrollEl) return;
+        const rect = scrollEl.getBoundingClientRect();
+        const edge = 60;
+        let speed = 0;
+        if (clientY < rect.top + edge) {
+          speed = -Math.ceil((rect.top + edge - clientY) / 4);
+        } else if (clientY > rect.bottom - edge) {
+          speed = Math.ceil((clientY - (rect.bottom - edge)) / 4);
+        }
+        if (speed !== 0) scrollEl.scrollTop += speed;
+      }
+
+      function buildItemCard(sectionId, subsectionId, item) {
+        const isOpen = expandedItems.has(item.id);
+        const div = document.createElement("div");
+        div.className = "admin-item-card" + (isOpen ? "" : " collapsed");
+        div.dataset.itemId = item.id;
+        div.innerHTML = `
     <div class="admin-item-card-head" data-field="head">
       <button type="button" class="item-card-toggle" data-field="toggle" aria-expanded="${isOpen ? "true" : "false"}" aria-label="${isOpen ? "Collapse item" : "Expand item"}">
         <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1307,303 +1494,320 @@
     </div>
     </div>
   `;
-      const dragHandle = div.querySelector('[data-field="dragHandle"]');
-      const moveUpBtn = div.querySelector('[data-field="moveUp"]');
-      const moveDownBtn = div.querySelector('[data-field="moveDown"]');
-      const headEl = div.querySelector('[data-field="head"]');
-      const controlsToggleBtn = div.querySelector('[data-field="controlsToggle"]');
-
-      controlsToggleBtn.onclick = () => {
-        const expanded = headEl.classList.toggle("controls-expanded");
-        controlsToggleBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
-        controlsToggleBtn.setAttribute(
-          "aria-label",
-          expanded ? "Hide reorder controls" : "Show reorder controls",
+        const dragHandle = div.querySelector('[data-field="dragHandle"]');
+        const moveUpBtn = div.querySelector('[data-field="moveUp"]');
+        const moveDownBtn = div.querySelector('[data-field="moveDown"]');
+        const headEl = div.querySelector('[data-field="head"]');
+        const controlsToggleBtn = div.querySelector(
+          '[data-field="controlsToggle"]',
         );
-      };
 
-      dragHandle.addEventListener("dragstart", (e) => {
-        dragState = {
-          sectionId,
-          subsectionId,
-          itemId: item.id
+        controlsToggleBtn.onclick = () => {
+          const expanded = headEl.classList.toggle("controls-expanded");
+          controlsToggleBtn.setAttribute(
+            "aria-expanded",
+            expanded ? "true" : "false",
+          );
+          controlsToggleBtn.setAttribute(
+            "aria-label",
+            expanded ? "Hide reorder controls" : "Show reorder controls",
+          );
         };
-        div.classList.add("dragging");
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", item.id);
-        try {
-          e.dataTransfer.setDragImage(div, 20, 20);
-        } catch (err) {}
-      });
-      dragHandle.addEventListener("dragend", () => {
-        div.classList.remove("dragging");
-        dragState = null;
-        // Re-render from state: commits the new order if a drop happened,
-        // or snaps back to the original order if the drag was cancelled.
-        renderAdmin();
-      });
 
-      // Touch equivalent of the above — native HTML5 drag/drop doesn't
-      // fire on touch devices, so this is a manual re-implementation.
-      let touchClone = null;
-      let touchOffsetX = 0;
-      let touchOffsetY = 0;
-
-      dragHandle.addEventListener(
-        "touchstart",
-        (e) => {
-          if (!e.touches || e.touches.length !== 1) return;
-          const touch = e.touches[0];
-          const rect = div.getBoundingClientRect();
-          touchOffsetX = touch.clientX - rect.left;
-          touchOffsetY = touch.clientY - rect.top;
-
-          dragState = { sectionId, subsectionId, itemId: item.id };
+        dragHandle.addEventListener("dragstart", (e) => {
+          dragState = {
+            sectionId,
+            subsectionId,
+            itemId: item.id,
+          };
           div.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", item.id);
+          try {
+            e.dataTransfer.setDragImage(div, 20, 20);
+          } catch (err) {}
+        });
+        dragHandle.addEventListener("dragend", () => {
+          div.classList.remove("dragging");
+          dragState = null;
+          // Re-render from state: commits the new order if a drop happened,
+          // or snaps back to the original order if the drag was cancelled.
+          renderAdmin();
+        });
 
-          touchClone = div.cloneNode(true);
-          touchClone.classList.add("drag-clone");
-          touchClone.style.width = rect.width + "px";
-          touchClone.style.left = rect.left + "px";
-          touchClone.style.top = rect.top + "px";
-          document.body.appendChild(touchClone);
-        },
-        { passive: true },
-      );
+        // Touch equivalent of the above — native HTML5 drag/drop doesn't
+        // fire on touch devices, so this is a manual re-implementation.
+        let touchClone = null;
+        let touchOffsetX = 0;
+        let touchOffsetY = 0;
 
-      dragHandle.addEventListener(
-        "touchmove",
-        (e) => {
-          if (!dragState || dragState.itemId !== item.id || !touchClone) return;
-          e.preventDefault(); // stop the page from scrolling while dragging
-          const touch = e.touches[0];
-          touchClone.style.left = touch.clientX - touchOffsetX + "px";
-          touchClone.style.top = touch.clientY - touchOffsetY + "px";
+        dragHandle.addEventListener(
+          "touchstart",
+          (e) => {
+            if (!e.touches || e.touches.length !== 1) return;
+            const touch = e.touches[0];
+            const rect = div.getBoundingClientRect();
+            touchOffsetX = touch.clientX - rect.left;
+            touchOffsetY = touch.clientY - rect.top;
 
+            dragState = { sectionId, subsectionId, itemId: item.id };
+            div.classList.add("dragging");
+
+            touchClone = div.cloneNode(true);
+            touchClone.classList.add("drag-clone");
+            touchClone.style.width = rect.width + "px";
+            touchClone.style.left = rect.left + "px";
+            touchClone.style.top = rect.top + "px";
+            document.body.appendChild(touchClone);
+          },
+          { passive: true },
+        );
+
+        dragHandle.addEventListener(
+          "touchmove",
+          (e) => {
+            if (!dragState || dragState.itemId !== item.id || !touchClone)
+              return;
+            e.preventDefault(); // stop the page from scrolling while dragging
+            const touch = e.touches[0];
+            touchClone.style.left = touch.clientX - touchOffsetX + "px";
+            touchClone.style.top = touch.clientY - touchOffsetY + "px";
+
+            const itemsWrap = div.parentElement;
+            if (itemsWrap) {
+              const afterEl = getDragAfterElement(itemsWrap, touch.clientY);
+              if (afterEl == null) {
+                if (itemsWrap.lastElementChild !== div)
+                  itemsWrap.appendChild(div);
+              } else if (afterEl !== div) {
+                itemsWrap.insertBefore(div, afterEl);
+              }
+            }
+            autoScrollPanelScroll(touch.clientY);
+          },
+          { passive: false },
+        );
+
+        dragHandle.addEventListener("touchend", () => {
+          if (!dragState) return;
           const itemsWrap = div.parentElement;
+          div.classList.remove("dragging");
+          if (touchClone) {
+            touchClone.remove();
+            touchClone = null;
+          }
           if (itemsWrap) {
-            const afterEl = getDragAfterElement(itemsWrap, touch.clientY);
-            if (afterEl == null) {
-              if (itemsWrap.lastElementChild !== div) itemsWrap.appendChild(div);
-            } else if (afterEl !== div) {
-              itemsWrap.insertBefore(div, afterEl);
+            const sub = getSubsection(
+              dragState.sectionId,
+              dragState.subsectionId,
+            );
+            if (sub) {
+              const newOrder = Array.from(
+                itemsWrap.querySelectorAll(".admin-item-card"),
+              ).map((el) => el.dataset.itemId);
+              sub.items.sort(
+                (a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id),
+              );
+              markDirty();
             }
           }
-          autoScrollPanelScroll(touch.clientY);
-        },
-        { passive: false },
-      );
+          dragState = null;
+          renderAdmin();
+        });
 
-      dragHandle.addEventListener("touchend", () => {
-        if (!dragState) return;
-        const itemsWrap = div.parentElement;
-        div.classList.remove("dragging");
-        if (touchClone) {
-          touchClone.remove();
-          touchClone = null;
+        moveUpBtn.onclick = () =>
+          moveItem(sectionId, subsectionId, item.id, -1);
+        moveDownBtn.onclick = () =>
+          moveItem(sectionId, subsectionId, item.id, 1);
+
+        const toggleBtn = div.querySelector('[data-field="toggle"]');
+        toggleBtn.onclick = () => {
+          const nowCollapsed = div.classList.toggle("collapsed");
+          if (nowCollapsed) {
+            expandedItems.delete(item.id);
+          } else {
+            expandedItems.add(item.id);
+          }
+          toggleBtn.setAttribute(
+            "aria-expanded",
+            nowCollapsed ? "false" : "true",
+          );
+          toggleBtn.setAttribute(
+            "aria-label",
+            nowCollapsed ? "Expand item" : "Collapse item",
+          );
+        };
+        const nameInput = div.querySelector('[data-field="name"]');
+        const priceInput = div.querySelector('[data-field="price"]');
+        const imageInput = div.querySelector('[data-field="image"]');
+        const imageFileInput = div.querySelector('[data-field="imageFile"]');
+        const imagePreviewWrap = div.querySelector(
+          '[data-field="imagePreviewWrap"]',
+        );
+        const imagePreview = div.querySelector('[data-field="imagePreview"]');
+        const removeImageBtn = div.querySelector('[data-field="removeImage"]');
+        const descInput = div.querySelector('[data-field="description"]');
+        const likePercentInput = div.querySelector(
+          '[data-field="likePercent"]',
+        );
+        const availInput = div.querySelector('[data-field="available"]');
+        const deleteBtn = div.querySelector('[data-field="delete"]');
+        const tagWrap = div.querySelector(".tag-toggles");
+
+        function findItem() {
+          const sub = getSubsection(sectionId, subsectionId);
+          return sub ? sub.items.find((i) => i.id === item.id) : null;
         }
-        if (itemsWrap) {
-          const sub = getSubsection(dragState.sectionId, dragState.subsectionId);
-          if (sub) {
-            const newOrder = Array.from(itemsWrap.querySelectorAll(".admin-item-card")).map((el) => el.dataset.itemId);
-            sub.items.sort((a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id));
+
+        Object.keys(TAG_META).forEach((tagKey) => {
+          const chip = document.createElement("span");
+          chip.className =
+            "tag-chip" + ((item.tags || []).includes(tagKey) ? " on" : "");
+          chip.textContent = TAG_META[tagKey].label;
+          chip.title = TAG_META[tagKey].title;
+          chip.onclick = () => {
+            const cur = findItem();
+            if (!cur) return;
+            cur.tags = cur.tags || [];
+            const i = cur.tags.indexOf(tagKey);
+            if (i > -1) cur.tags.splice(i, 1);
+            else cur.tags.push(tagKey);
+            chip.classList.toggle("on");
+            markDirty();
+          };
+          tagWrap.appendChild(chip);
+        });
+
+        nameInput.onchange = () => {
+          const cur = findItem();
+          if (cur) {
+            cur.name = nameInput.value.trim() || "Untitled item";
             markDirty();
           }
-        }
-        dragState = null;
-        renderAdmin();
-      });
-
-      moveUpBtn.onclick = () => moveItem(sectionId, subsectionId, item.id, -1);
-      moveDownBtn.onclick = () => moveItem(sectionId, subsectionId, item.id, 1);
-
-      const toggleBtn = div.querySelector('[data-field="toggle"]');
-      toggleBtn.onclick = () => {
-        const nowCollapsed = div.classList.toggle("collapsed");
-        if (nowCollapsed) {
-          expandedItems.delete(item.id);
-        } else {
-          expandedItems.add(item.id);
-        }
-        toggleBtn.setAttribute("aria-expanded", nowCollapsed ? "false" : "true");
-        toggleBtn.setAttribute(
-          "aria-label",
-          nowCollapsed ? "Expand item" : "Collapse item",
-        );
-      };
-      const nameInput = div.querySelector('[data-field="name"]');
-      const priceInput = div.querySelector('[data-field="price"]');
-      const imageInput = div.querySelector('[data-field="image"]');
-      const imageFileInput = div.querySelector('[data-field="imageFile"]');
-      const imagePreviewWrap = div.querySelector(
-        '[data-field="imagePreviewWrap"]',
-      );
-      const imagePreview = div.querySelector('[data-field="imagePreview"]');
-      const removeImageBtn = div.querySelector('[data-field="removeImage"]');
-      const descInput = div.querySelector('[data-field="description"]');
-      const likePercentInput = div.querySelector('[data-field="likePercent"]');
-      const availInput = div.querySelector('[data-field="available"]');
-      const deleteBtn = div.querySelector('[data-field="delete"]');
-      const tagWrap = div.querySelector(".tag-toggles");
-
-      function findItem() {
-        const sub = getSubsection(sectionId, subsectionId);
-        return sub ? sub.items.find((i) => i.id === item.id) : null;
-      }
-
-      Object.keys(TAG_META).forEach((tagKey) => {
-        const chip = document.createElement("span");
-        chip.className =
-          "tag-chip" + ((item.tags || []).includes(tagKey) ? " on" : "");
-        chip.textContent = TAG_META[tagKey].label;
-        chip.title = TAG_META[tagKey].title;
-        chip.onclick = () => {
+        };
+        priceInput.onchange = () => {
+          const cur = findItem();
+          if (cur) {
+            cur.price = priceInput.value.trim() || "0.00";
+            markDirty();
+          }
+        };
+        likePercentInput.onchange = () => {
           const cur = findItem();
           if (!cur) return;
-          cur.tags = cur.tags || [];
-          const i = cur.tags.indexOf(tagKey);
-          if (i > -1) cur.tags.splice(i, 1);
-          else cur.tags.push(tagKey);
-          chip.classList.toggle("on");
+          const v = likePercentInput.value.trim();
+          if (v === "") {
+            delete cur.likePercent;
+          } else {
+            let n = Math.round(Number(v));
+            if (isNaN(n)) n = 0;
+            n = Math.max(0, Math.min(100, n));
+            cur.likePercent = n;
+            likePercentInput.value = n;
+          }
           markDirty();
         };
-        tagWrap.appendChild(chip);
-      });
 
-      nameInput.onchange = () => {
-        const cur = findItem();
-        if (cur) {
-          cur.name = nameInput.value.trim() || "Untitled item";
-          markDirty();
+        function setPreview(url) {
+          if (url) {
+            imagePreview.src = url;
+            imagePreviewWrap.style.display = "";
+          } else {
+            imagePreview.src = "";
+            imagePreviewWrap.style.display = "none";
+          }
         }
-      };
-      priceInput.onchange = () => {
-        const cur = findItem();
-        if (cur) {
-          cur.price = priceInput.value.trim() || "0.00";
-          markDirty();
-        }
-      };
-      likePercentInput.onchange = () => {
-        const cur = findItem();
-        if (!cur) return;
-        const v = likePercentInput.value.trim();
-        if (v === "") {
-          delete cur.likePercent;
-        } else {
-          let n = Math.round(Number(v));
-          if (isNaN(n)) n = 0;
-          n = Math.max(0, Math.min(100, n));
-          cur.likePercent = n;
-          likePercentInput.value = n;
-        }
-        markDirty();
-      };
 
-      function setPreview(url) {
-        if (url) {
-          imagePreview.src = url;
-          imagePreviewWrap.style.display = "";
-        } else {
-          imagePreview.src = "";
-          imagePreviewWrap.style.display = "none";
-        }
+        imageInput.onchange = () => {
+          const cur = findItem();
+          if (cur) {
+            cur.image = imageInput.value.trim();
+            setPreview(cur.image);
+            markDirty();
+          }
+        };
+
+        imageFileInput.onchange = async () => {
+          const file = imageFileInput.files && imageFileInput.files[0];
+          if (!file) return;
+          if (!file.type.startsWith("image/")) {
+            showToast("Please choose an image file");
+            imageFileInput.value = "";
+            return;
+          }
+          const cur = findItem();
+          if (!cur) return;
+          showToast("Uploading image…", 60000);
+          try {
+            const { url, path } = await uploadItemImage(file, cur.imagePath);
+            cur.image = url;
+            cur.imagePath = path;
+            imageInput.value = "";
+            setPreview(url);
+            markDirty();
+            showToast("Image uploaded");
+          } catch (e) {
+            console.error("Image upload failed:", e);
+            showToast("Could not upload that image");
+          }
+          imageFileInput.value = "";
+        };
+
+        removeImageBtn.onclick = () => {
+          const cur = findItem();
+          if (cur) {
+            if (cur.imagePath) {
+              supabaseClient.storage
+                .from(MENU_BUCKET)
+                .remove([cur.imagePath])
+                .catch(() => {});
+            }
+            cur.image = "";
+            cur.imagePath = "";
+            imageInput.value = "";
+            setPreview("");
+            markDirty();
+          }
+        };
+        descInput.onchange = () => {
+          const cur = findItem();
+          if (cur) {
+            cur.description = descInput.value.trim();
+            markDirty();
+          }
+        };
+        availInput.onchange = () => {
+          const cur = findItem();
+          if (cur) {
+            cur.available = availInput.checked;
+            markDirty();
+          }
+        };
+        deleteBtn.onclick = () => {
+          const sub = getSubsection(sectionId, subsectionId);
+          if (sub) sub.items = sub.items.filter((i) => i.id !== item.id);
+          markDirty();
+          renderAdmin();
+        };
+
+        return div;
       }
 
-      imageInput.onchange = () => {
-        const cur = findItem();
-        if (cur) {
-          cur.image = imageInput.value.trim();
-          setPreview(cur.image);
-          markDirty();
-        }
-      };
-
-      imageFileInput.onchange = async () => {
-        const file = imageFileInput.files && imageFileInput.files[0];
-        if (!file) return;
-        if (!file.type.startsWith("image/")) {
-          showToast("Please choose an image file");
-          imageFileInput.value = "";
-          return;
-        }
-        const cur = findItem();
-        if (!cur) return;
-        showToast("Uploading image…", 60000);
-        try {
-          const {
-            url,
-            path
-          } = await uploadItemImage(file, cur.imagePath);
-          cur.image = url;
-          cur.imagePath = path;
-          imageInput.value = "";
-          setPreview(url);
-          markDirty();
-          showToast("Image uploaded");
-        } catch (e) {
-          console.error("Image upload failed:", e);
-          showToast("Could not upload that image");
-        }
-        imageFileInput.value = "";
-      };
-
-      removeImageBtn.onclick = () => {
-        const cur = findItem();
-        if (cur) {
-          if (cur.imagePath) {
-            supabaseClient.storage
-              .from(MENU_BUCKET)
-              .remove([cur.imagePath])
-              .catch(() => {});
-          }
-          cur.image = "";
-          cur.imagePath = "";
-          imageInput.value = "";
-          setPreview("");
-          markDirty();
-        }
-      };
-      descInput.onchange = () => {
-        const cur = findItem();
-        if (cur) {
-          cur.description = descInput.value.trim();
-          markDirty();
-        }
-      };
-      availInput.onchange = () => {
-        const cur = findItem();
-        if (cur) {
-          cur.available = availInput.checked;
-          markDirty();
-        }
-      };
-      deleteBtn.onclick = () => {
-        const sub = getSubsection(sectionId, subsectionId);
-        if (sub) sub.items = sub.items.filter((i) => i.id !== item.id);
+      function addSection() {
+        const sec = {
+          id: uid("s"),
+          title: "New category",
+          subsections: [{ id: uid("ss"), title: "General", items: [] }],
+        };
+        state.sections.push(sec);
+        if (!activeSection) activeSection = sec.id;
         markDirty();
         renderAdmin();
-      };
+      }
 
-      return div;
-    }
-
-    function addSection() {
-      const sec = {
-        id: uid("s"),
-        title: "New category",
-        subsections: [{ id: uid("ss"), title: "General", items: [] }],
-      };
-      state.sections.push(sec);
-      if (!activeSection) activeSection = sec.id;
-      markDirty();
-      renderAdmin();
-    }
-
-    initAdminVisibility();
-    window.addEventListener("hashchange", initAdminVisibility);
-    loadData();
-  </script>
-</body>
-
+      initAdminVisibility();
+      window.addEventListener("hashchange", initAdminVisibility);
+      loadData();
+    </script>
+  </body>
 </html>
