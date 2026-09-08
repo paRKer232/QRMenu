@@ -819,7 +819,7 @@
               )
               .join("") +
             "</div>" +
-            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="без лук и т.н.">${escapeHtml(cartNote)}</textarea></div>` +
+            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="например - без лук">${escapeHtml(cartNote)}</textarea></div>` +
             `<div class="cart-total-row"><span>Total</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>` +
             `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Поръчай</button>`;
         }
