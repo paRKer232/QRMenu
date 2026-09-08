@@ -504,19 +504,39 @@
       let staffOrdersChannel = null;
       let badgeChannel = null;
 
+      const TABLE_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
       function tableStorageKey() {
         return "table_" + MENU_SLUG;
       }
       function getSavedTable() {
         try {
-          return localStorage.getItem(tableStorageKey());
+          const raw = localStorage.getItem(tableStorageKey());
+          if (!raw) return null;
+          const data = JSON.parse(raw);
+          if (
+            !data ||
+            typeof data.table !== "string" ||
+            typeof data.savedAt !== "number"
+          ) {
+            clearSavedTable();
+            return null;
+          }
+          if (Date.now() - data.savedAt > TABLE_SESSION_TTL_MS) {
+            clearSavedTable();
+            clearCartStorage();
+            return null;
+          }
+          return data.table;
         } catch (e) {
           return null;
         }
       }
       function saveTable(t) {
         try {
-          localStorage.setItem(tableStorageKey(), t);
+          localStorage.setItem(
+            tableStorageKey(),
+            JSON.stringify({ table: t, savedAt: Date.now() }),
+          );
         } catch (e) {}
       }
       function clearSavedTable() {
@@ -530,6 +550,11 @@
       function saveCart() {
         try {
           localStorage.setItem(cartStorageKey(), JSON.stringify(cart));
+        } catch (e) {}
+      }
+      function clearCartStorage() {
+        try {
+          localStorage.removeItem(cartStorageKey());
         } catch (e) {}
       }
       function loadCart() {
@@ -552,9 +577,9 @@
       }
 
       function initOrdering() {
+        const saved = getSavedTable();
         loadCart();
         refreshCartUI();
-        const saved = getSavedTable();
         if (saved) {
           selectedTable = saved;
           updateTablePill();
