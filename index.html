@@ -126,7 +126,7 @@
     </div>
     <footer class="footer">
       <div class="footer-container">
-        <p class="copyright">
+        <p class="copyright" id="copyrightText">
           &copy; <span id="year"></span> Soner. All rights reserved.
         </p>
       </div>
@@ -180,16 +180,40 @@
       let isAdminDevice = false;
 
       function initAdminVisibility() {
-        if (window.location.hash === "#" + ADMIN_HASH) {
+        // Primary trigger: query param, e.g. mysite.com/qrmenu?owner=1
+        // Fragments (#owner) are kept as a fallback, but iOS Safari's
+        // address-bar autocomplete can silently drop hash fragments once
+        // history.replaceState has stripped them once before, so the query
+        // param is the more reliable way to grant access on mobile.
+        let params;
+        try {
+          params = new URLSearchParams(window.location.search);
+        } catch (e) {
+          params = null;
+        }
+        const queryTriggered = !!params && params.get(ADMIN_HASH) !== null;
+        const hashTriggered = window.location.hash === "#" + ADMIN_HASH;
+
+        if (queryTriggered || hashTriggered) {
           try {
             localStorage.setItem(ADMIN_DEVICE_KEY, "1");
           } catch (e) {}
-          // Strip the hash from the address bar so it doesn't linger visibly.
-          history.replaceState(
-            null,
-            "",
-            window.location.pathname + window.location.search,
-          );
+          // Strip the trigger from the address bar so it doesn't linger visibly.
+          if (queryTriggered && params) {
+            params.delete(ADMIN_HASH);
+            const qs = params.toString();
+            history.replaceState(
+              null,
+              "",
+              window.location.pathname + (qs ? "?" + qs : ""),
+            );
+          } else {
+            history.replaceState(
+              null,
+              "",
+              window.location.pathname + window.location.search,
+            );
+          }
         }
         isAdminDevice = false;
         try {
@@ -200,6 +224,32 @@
         const ordersFab = document.getElementById("ordersToggle");
         if (ordersFab) ordersFab.classList.toggle("hidden", !isAdminDevice);
         if (isAdminDevice) initOrdersBadge();
+      }
+
+      // Fallback recovery gesture for mobile: tap the footer copyright text
+      // 5 times within 2 seconds to re-grant admin access on this device,
+      // without needing to type any URL at all.
+      function initFooterRecoveryTap() {
+        const el = document.getElementById("copyrightText");
+        if (!el) return;
+        let tapCount = 0;
+        let tapTimer = null;
+        el.addEventListener("click", () => {
+          tapCount++;
+          if (tapTimer) clearTimeout(tapTimer);
+          tapTimer = setTimeout(() => {
+            tapCount = 0;
+          }, 2000);
+          if (tapCount >= 5) {
+            tapCount = 0;
+            if (tapTimer) clearTimeout(tapTimer);
+            try {
+              localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+            } catch (e) {}
+            initAdminVisibility();
+            showToast("Admin access restored on this device");
+          }
+        });
       }
 
       function forgetThisDevice() {
@@ -2651,6 +2701,7 @@
 
       initAdminVisibility();
       window.addEventListener("hashchange", initAdminVisibility);
+      initFooterRecoveryTap();
       loadData();
     </script>
   </body>
