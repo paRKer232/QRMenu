@@ -664,7 +664,7 @@
       function cartCtrlHtml(itemId) {
         const q = cartQty(itemId);
         if (q <= 0) {
-          return `<button class="add-btn" type="button" onclick="addToCart('${itemId}')">+ Add</button>`;
+          return `<button class="add-btn" type="button" onclick="addToCart('${itemId}')">+ Добави</button>`;
         }
         return `<div class="qty-stepper">
     <button type="button" aria-label="Remove one" onclick="decCartItem('${itemId}')">−</button>
