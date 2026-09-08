@@ -621,11 +621,11 @@
         }
         gate.innerHTML = `
     <div class="table-gate-card">
-      <h2>Welcome!</h2>
-      <p class="table-gate-sub">Which table are you sitting at?</p>
+      <h2>Добре дошли!</h2>
+      <p class="table-gate-sub">На коя маса сядате?</p>
       <div class="table-grid">${grid}</div>
       <div class="table-gate-other">
-        <input type="text" id="otherTableInput" placeholder="Other (e.g. Patio 3)">
+        <input type="text" id="otherTableInput" placeholder="Други...">
         <button class="btn btn-primary" type="button" onclick="chooseOtherTable()">Go</button>
       </div>
     </div>`;
@@ -663,7 +663,7 @@
       }
       function confirmChangeTable() {
         const ok = confirm(
-          "Смяна на масата? Всички артикули, които все още са в количката ви, ще бъдат изтрити.",
+          "Сигурни ли сте? Всички артикули в количката ви ще бъдат изтрити.",
         );
         if (!ok) return;
         cart = [];
