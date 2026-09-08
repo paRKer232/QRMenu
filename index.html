@@ -794,9 +794,9 @@
               )
               .join("") +
             "</div>" +
-            `<div class="field"><label>Note for the kitchen (optional)</label><textarea id="cartNoteInput" placeholder="e.g. no onions">${escapeHtml(cartNote)}</textarea></div>` +
+            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="без лук и т.н.">${escapeHtml(cartNote)}</textarea></div>` +
             `<div class="cart-total-row"><span>Total</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>` +
-            `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Place order</button>`;
+            `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Поръчай</button>`;
         }
 
         let sentHtml = "";
@@ -825,7 +825,7 @@
 
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Table ${escapeHtml(selectedTable || "")}</h2>
+      <h2>Маса ${escapeHtml(selectedTable || "")}</h2>
       <button class="icon-btn" onclick="closeCart()">✕</button>
     </div>
     <div class="panel-scroll">
@@ -867,7 +867,7 @@
           cartNote = "";
           saveCart();
           updateCartFab();
-          showToast("Order sent to the kitchen!");
+          showToast("Поръчката ви е приета!");
           await loadMyOrders();
           renderCartPanel();
         } catch (e) {
@@ -875,7 +875,7 @@
           showToast("Could not send your order, try again");
           if (btn) {
             btn.disabled = false;
-            btn.textContent = "Place order";
+            btn.textContent = "Поръчай";
           }
         }
       }
@@ -893,7 +893,7 @@
           if (error) throw error;
           myOrders = data || [];
         } catch (e) {
-          console.error("Could not load table orders:", e);
+          console.error("Грешка:", e);
         }
       }
 
