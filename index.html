@@ -39,7 +39,15 @@
         <h1 id="bizName">&nbsp;</h1>
         <p class="tagline" id="bizTagline">&nbsp;</p>
         <div class="hero-rule"></div>
+        <button
+          class="table-pill hidden"
+          id="tablePill"
+          type="button"
+          onclick="confirmChangeTable()"
+        ></button>
       </header>
+
+      <div class="table-gate hidden" id="tableGate"></div>
 
       <div class="tabs-wrap">
         <button
@@ -77,6 +85,24 @@
       >
         ↑
       </button>
+      <button
+        class="fab cart-fab hidden"
+        id="cartFab"
+        title="Your order"
+        aria-label="Your order"
+      >
+        🧾
+        <span class="fab-badge hidden" id="cartBadge">0</span>
+      </button>
+      <button
+        class="fab fab-orders hidden"
+        id="ordersToggle"
+        title="Live orders"
+        aria-label="Live orders"
+      >
+        📋
+        <span class="fab-badge hidden" id="ordersBadge">0</span>
+      </button>
       <div
         class="photo-lightbox hidden"
         id="photoLightbox"
@@ -86,6 +112,14 @@
       </div>
       <div class="overlay hidden" id="overlay">
         <div class="panel" id="panel"></div>
+      </div>
+
+      <div class="overlay hidden" id="cartOverlay">
+        <div class="panel" id="cartPanel"></div>
+      </div>
+
+      <div class="overlay hidden" id="ordersOverlay">
+        <div class="panel" id="ordersPanel"></div>
       </div>
 
       <div class="toast hidden" id="toast"></div>
@@ -143,6 +177,8 @@
       const ADMIN_HASH = "owner";
       const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
 
+      let isAdminDevice = false;
+
       function initAdminVisibility() {
         if (window.location.hash === "#" + ADMIN_HASH) {
           try {
@@ -155,12 +191,15 @@
             window.location.pathname + window.location.search,
           );
         }
-        let isAdminDevice = false;
+        isAdminDevice = false;
         try {
           isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
         } catch (e) {}
         const fab = document.getElementById("adminToggle");
         if (fab) fab.classList.toggle("hidden", !isAdminDevice);
+        const ordersFab = document.getElementById("ordersToggle");
+        if (ordersFab) ordersFab.classList.toggle("hidden", !isAdminDevice);
+        if (isAdminDevice) initOrdersBadge();
       }
 
       function forgetThisDevice() {
@@ -188,6 +227,7 @@
             tagline: "Slow mornings, honest coffee",
             currency: "$",
             accent: "sage",
+            tableCount: 12,
           },
           publishedUrl: "",
           sections: [
@@ -405,6 +445,659 @@
             .forEach((b) => (b.disabled = false));
         }
       }
+      /* ---------------- ORDERING SYSTEM ---------------- */
+
+      let selectedTable = null;
+      let cart = []; // { item_id, name, price, qty }
+      let cartNote = "";
+      let myOrders = []; // this table's order_items, from get_table_orders
+      let staffOrdersChannel = null;
+      let badgeChannel = null;
+
+      function tableStorageKey() {
+        return "table_" + MENU_SLUG;
+      }
+      function getSavedTable() {
+        try {
+          return localStorage.getItem(tableStorageKey());
+        } catch (e) {
+          return null;
+        }
+      }
+      function saveTable(t) {
+        try {
+          localStorage.setItem(tableStorageKey(), t);
+        } catch (e) {}
+      }
+      function clearSavedTable() {
+        try {
+          localStorage.removeItem(tableStorageKey());
+        } catch (e) {}
+      }
+      function cartStorageKey() {
+        return "cart_" + MENU_SLUG;
+      }
+      function saveCart() {
+        try {
+          localStorage.setItem(cartStorageKey(), JSON.stringify(cart));
+        } catch (e) {}
+      }
+      function loadCart() {
+        try {
+          const raw = localStorage.getItem(cartStorageKey());
+          cart = raw ? JSON.parse(raw) : [];
+        } catch (e) {
+          cart = [];
+        }
+      }
+
+      function findMenuItem(itemId) {
+        for (const sec of state.sections || []) {
+          for (const sub of sec.subsections || []) {
+            const found = (sub.items || []).find((i) => i.id === itemId);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+
+      function initOrdering() {
+        loadCart();
+        refreshCartUI();
+        const saved = getSavedTable();
+        if (saved) {
+          selectedTable = saved;
+          updateTablePill();
+          document.getElementById("cartFab").classList.remove("hidden");
+          updateCartFab();
+          loadMyOrders();
+        } else {
+          renderTableGate();
+          document.getElementById("tableGate").classList.remove("hidden");
+        }
+        const cartFab = document.getElementById("cartFab");
+        if (cartFab) cartFab.onclick = openCart;
+        const ordersFab = document.getElementById("ordersToggle");
+        if (ordersFab) ordersFab.onclick = openOrders;
+        document
+          .getElementById("cartOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "cartOverlay") closeCart();
+          });
+        document
+          .getElementById("ordersOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "ordersOverlay") closeOrders();
+          });
+      }
+
+      /* ---- table gate ---- */
+
+      function renderTableGate() {
+        const gate = document.getElementById("tableGate");
+        const count = Math.max(
+          1,
+          parseInt((state.business && state.business.tableCount) || 12, 10) ||
+            12,
+        );
+        let grid = "";
+        for (let i = 1; i <= count; i++) {
+          grid += `<button class="table-btn" type="button" onclick="chooseTable('${i}')">${i}</button>`;
+        }
+        gate.innerHTML = `
+    <div class="table-gate-card">
+      <h2>Welcome!</h2>
+      <p class="table-gate-sub">Which table are you sitting at?</p>
+      <div class="table-grid">${grid}</div>
+      <div class="table-gate-other">
+        <input type="text" id="otherTableInput" placeholder="Other (e.g. Patio 3)">
+        <button class="btn btn-primary" type="button" onclick="chooseOtherTable()">Go</button>
+      </div>
+    </div>`;
+      }
+
+      function chooseTable(t) {
+        setTable(String(t));
+      }
+      function chooseOtherTable() {
+        const input = document.getElementById("otherTableInput");
+        const val = input ? input.value.trim() : "";
+        if (!val) {
+          showToast("Enter a table name first");
+          return;
+        }
+        setTable(val);
+      }
+      function setTable(t) {
+        selectedTable = t;
+        saveTable(t);
+        document.getElementById("tableGate").classList.add("hidden");
+        updateTablePill();
+        document.getElementById("cartFab").classList.remove("hidden");
+        loadMyOrders();
+      }
+      function updateTablePill() {
+        const pill = document.getElementById("tablePill");
+        if (!pill) return;
+        if (selectedTable) {
+          pill.textContent = "Маса " + selectedTable + " · Смяна";
+          pill.classList.remove("hidden");
+        } else {
+          pill.classList.add("hidden");
+        }
+      }
+      function confirmChangeTable() {
+        const ok = confirm(
+          "Смяна на масата? Всички артикули, които все още са в количката ви, ще бъдат изтрити.",
+        );
+        if (!ok) return;
+        cart = [];
+        cartNote = "";
+        saveCart();
+        clearSavedTable();
+        selectedTable = null;
+        myOrders = [];
+        closeCart();
+        document.getElementById("cartFab").classList.add("hidden");
+        updateCartFab();
+        updateTablePill();
+        renderTableGate();
+        document.getElementById("tableGate").classList.remove("hidden");
+      }
+
+      /* ---- cart ---- */
+
+      function cartQty(itemId) {
+        const line = cart.find((c) => c.item_id === itemId);
+        return line ? line.qty : 0;
+      }
+      function cartCtrlHtml(itemId) {
+        const q = cartQty(itemId);
+        if (q <= 0) {
+          return `<button class="add-btn" type="button" onclick="addToCart('${itemId}')">+ Add</button>`;
+        }
+        return `<div class="qty-stepper">
+    <button type="button" aria-label="Remove one" onclick="decCartItem('${itemId}')">−</button>
+    <span>${q}</span>
+    <button type="button" aria-label="Add one" onclick="addToCart('${itemId}')">+</button>
+  </div>`;
+      }
+      let lastCartTapAt = {};
+      function cartTapAllowed(key) {
+        const now = Date.now();
+        if (lastCartTapAt[key] && now - lastCartTapAt[key] < 350) {
+          return false;
+        }
+        lastCartTapAt[key] = now;
+        return true;
+      }
+
+      function addToCart(itemId) {
+        if (!cartTapAllowed("add:" + itemId)) return;
+        const item = findMenuItem(itemId);
+        if (!item || item.available === false) return;
+        const line = cart.find((c) => c.item_id === itemId);
+        if (line) line.qty++;
+        else
+          cart.push({
+            item_id: itemId,
+            name: item.name,
+            price: item.price,
+            qty: 1,
+          });
+        saveCart();
+        refreshCartUI();
+      }
+      function decCartItem(itemId) {
+        if (!cartTapAllowed("dec:" + itemId)) return;
+        const idx = cart.findIndex((c) => c.item_id === itemId);
+        if (idx === -1) return;
+        cart[idx].qty--;
+        if (cart[idx].qty <= 0) cart.splice(idx, 1);
+        saveCart();
+        refreshCartUI();
+      }
+      function refreshCartUI() {
+        document.querySelectorAll("[data-cart-item]").forEach((el) => {
+          el.innerHTML = cartCtrlHtml(el.dataset.cartItem);
+        });
+        updateCartFab();
+        const overlay = document.getElementById("cartOverlay");
+        if (overlay && !overlay.classList.contains("hidden")) {
+          renderCartPanel();
+        }
+      }
+      function updateCartFab() {
+        const totalQty = cart.reduce((s, c) => s + c.qty, 0);
+        const badge = document.getElementById("cartBadge");
+        if (!badge) return;
+        if (totalQty > 0) {
+          badge.textContent = totalQty;
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      }
+
+      function groupOrdersByOrderId(rows) {
+        const map = new Map();
+        rows.forEach((r) => {
+          if (!map.has(r.order_id)) {
+            map.set(r.order_id, {
+              order_id: r.order_id,
+              created_at: r.created_at,
+              note: r.note,
+              items: [],
+            });
+          }
+          map.get(r.order_id).items.push(r);
+        });
+        return Array.from(map.values()).sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at),
+        );
+      }
+
+      function openCart() {
+        document.getElementById("cartOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderCartPanel();
+        loadMyOrders().then(renderCartPanel);
+      }
+      function closeCart() {
+        document.getElementById("cartOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      function renderCartPanel() {
+        const panel = document.getElementById("cartPanel");
+        if (!panel) return;
+        const currency = (state.business && state.business.currency) || "$";
+        let cartHtml = "";
+        if (!cart.length) {
+          cartHtml =
+            '<p class="empty-state" style="padding:20px 0;">Количката ви е празна. Докоснете "+ Добави" на продукт от менюто за да я добавите в количката.</p>';
+        } else {
+          const total = cart.reduce(
+            (s, c) => s + (parseFloat(c.price) || 0) * c.qty,
+            0,
+          );
+          cartHtml =
+            '<div class="cart-lines">' +
+            cart
+              .map(
+                (c) => `
+      <div class="cart-line">
+        <div class="cart-line-info">
+          <span class="cart-line-name">${escapeHtml(c.name)}</span>
+          <span class="cart-line-price">${currency}${(parseFloat(c.price) || 0).toFixed(2)}</span>
+        </div>
+        <div class="qty-stepper">
+          <button type="button" aria-label="Remove one" onclick="decCartItem('${c.item_id}')">−</button>
+          <span>${c.qty}</span>
+          <button type="button" aria-label="Add one" onclick="addToCart('${c.item_id}')">+</button>
+        </div>
+      </div>`,
+              )
+              .join("") +
+            "</div>" +
+            `<div class="field"><label>Note for the kitchen (optional)</label><textarea id="cartNoteInput" placeholder="e.g. no onions">${escapeHtml(cartNote)}</textarea></div>` +
+            `<div class="cart-total-row"><span>Total</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>` +
+            `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Place order</button>`;
+        }
+
+        let sentHtml = "";
+        if (myOrders.length) {
+          sentHtml =
+            '<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Sent to the kitchen</div>' +
+            groupOrdersByOrderId(myOrders)
+              .map(
+                (g) => `
+      <div class="order-card">
+        <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+        ${g.items
+          .map(
+            (it) => `
+        <div class="order-item-row">
+          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          <span class="status-badge ${it.status}">${it.status === "done" ? "Ready" : "Preparing"}</span>
+        </div>`,
+          )
+          .join("")}
+        ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+      </div>`,
+              )
+              .join("");
+        }
+
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Table ${escapeHtml(selectedTable || "")}</h2>
+      <button class="icon-btn" onclick="closeCart()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      ${cartHtml}
+      ${sentHtml}
+      <div class="divider"></div>
+      <button class="btn btn-block" onclick="confirmChangeTable()">Смяна на масата</button>
+    </div>`;
+
+        const noteInput = document.getElementById("cartNoteInput");
+        if (noteInput) {
+          noteInput.onchange = () => {
+            cartNote = noteInput.value;
+          };
+        }
+      }
+
+      async function placeOrder() {
+        if (!cart.length || !selectedTable) return;
+        const btn = document.getElementById("placeOrderBtn");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Placing order…";
+        }
+        try {
+          const { error } = await supabaseClient.rpc("place_order", {
+            p_slug: MENU_SLUG,
+            p_table: selectedTable,
+            p_items: cart.map((c) => ({
+              item_id: c.item_id,
+              name: c.name,
+              price: c.price,
+              qty: c.qty,
+            })),
+            p_note: cartNote ? cartNote.trim() : null,
+          });
+          if (error) throw error;
+          cart = [];
+          cartNote = "";
+          saveCart();
+          updateCartFab();
+          showToast("Order sent to the kitchen!");
+          await loadMyOrders();
+          renderCartPanel();
+        } catch (e) {
+          console.error("Order failed:", e);
+          showToast("Could not send your order, try again");
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Place order";
+          }
+        }
+      }
+
+      async function loadMyOrders() {
+        if (!selectedTable) {
+          myOrders = [];
+          return;
+        }
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_table_orders",
+            { p_slug: MENU_SLUG, p_table: selectedTable },
+          );
+          if (error) throw error;
+          myOrders = data || [];
+        } catch (e) {
+          console.error("Could not load table orders:", e);
+        }
+      }
+
+      /* ---- staff live-orders dashboard ---- */
+
+      function openOrders() {
+        document.getElementById("ordersOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderOrders();
+      }
+      function closeOrders() {
+        document.getElementById("ordersOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+        unsubscribeStaffOrders();
+      }
+
+      function renderOrders() {
+        const panel = document.getElementById("ordersPanel");
+        if (!panel) return;
+        if (!unlocked) {
+          panel.innerHTML = `
+      <div class="panel-header">
+        <h2>Live orders</h2>
+        <button class="icon-btn" onclick="closeOrders()">✕</button>
+      </div>
+      <div class="panel-scroll">
+        <div class="lock-screen">
+          <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to view live orders.</p>
+          <div class="field" style="max-width:180px; margin:14px auto;">
+            <input type="text" inputmode="numeric" maxlength="6" id="ordersPinInput" placeholder="••••••">
+          </div>
+          <button class="btn btn-primary" onclick="tryUnlockOrders()">Unlock</button>
+        </div>
+      </div>`;
+          return;
+        }
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Live orders</h2>
+      <button class="icon-btn" onclick="closeOrders()">✕</button>
+    </div>
+    <div class="panel-scroll" id="ordersScroll">
+      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+    </div>`;
+        subscribeStaffOrders();
+        refreshOrdersDashboard();
+      }
+
+      async function tryUnlockOrders() {
+        const input = document.getElementById("ordersPinInput");
+        const val = input ? input.value.trim() : "";
+        try {
+          const { data, error } = await supabaseClient.rpc("check_pin", {
+            p_slug: MENU_SLUG,
+            p_pin: val,
+          });
+          if (error) throw error;
+          if (data === true) {
+            sessionPin = val;
+            unlocked = true;
+            renderOrders();
+          } else {
+            showToast("Incorrect PIN");
+          }
+        } catch (e) {
+          showToast("Could not verify PIN — check connection");
+        }
+      }
+
+      async function refreshOrdersDashboard() {
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_active_orders",
+            { p_slug: MENU_SLUG, p_pin: sessionPin },
+          );
+          if (error) throw error;
+          renderOrdersList(data || []);
+        } catch (e) {
+          console.error("Could not load orders:", e);
+          const scroll = document.getElementById("ordersScroll");
+          if (scroll)
+            scroll.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">Could not load orders.</p>';
+        }
+      }
+
+      function renderOrdersList(rows) {
+        const scroll = document.getElementById("ordersScroll");
+        if (!scroll) return;
+        if (!rows.length) {
+          scroll.innerHTML =
+            '<p class="empty-state" style="padding:20px 0;">No active orders right now.</p>';
+          return;
+        }
+        const byTable = new Map();
+        rows.forEach((r) => {
+          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
+          byTable.get(r.table_number).push(r);
+        });
+        const tables = Array.from(byTable.keys()).sort((a, b) => {
+          const na = parseFloat(a),
+            nb = parseFloat(b);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return String(a).localeCompare(String(b));
+        });
+        scroll.innerHTML = tables
+          .map((t) => {
+            const items = byTable.get(t);
+            const pendingCount = items.filter(
+              (i) => i.status === "pending",
+            ).length;
+            const groups = groupOrdersByOrderId(items);
+            return `<div class="admin-section-card">
+      <div class="section-heading" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <span>Table ${escapeHtml(t)}</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          ${pendingCount ? `<span class="tab-badge">${pendingCount} pending</span>` : ""}
+          <button class="btn btn-sm btn-danger clear-table-btn" type="button" data-table="${escapeHtml(t)}">Clear table</button>
+        </div>
+      </div>
+      ${groups
+        .map(
+          (g) => `
+        <div class="order-card">
+          <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+          ${g.items
+            .map(
+              (it) => `
+          <div class="order-item-row ${it.status === "done" ? "done" : ""}">
+            <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+            <button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}')">${it.status === "done" ? "Undo" : "Mark done"}</button>
+          </div>`,
+            )
+            .join("")}
+          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+        </div>`,
+        )
+        .join("")}
+    </div>`;
+          })
+          .join("");
+        scroll.querySelectorAll(".clear-table-btn").forEach((btn) => {
+          btn.onclick = () => clearTableOrders(btn.dataset.table);
+        });
+      }
+
+      async function clearTableOrders(tableNumber) {
+        const ok = confirm(
+          `Clear all orders for Table ${tableNumber}? This can't be undone.`,
+        );
+        if (!ok) return;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "clear_table_orders",
+            {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPin,
+              p_table: tableNumber,
+            },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          showToast(`Table ${tableNumber} cleared`);
+          refreshOrdersDashboard();
+        } catch (e) {
+          showToast("Could not clear table");
+        }
+      }
+
+      async function toggleItemStatus(itemId, currentStatus) {
+        const newStatus = currentStatus === "done" ? "pending" : "done";
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "set_item_status",
+            {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPin,
+              p_item_id: itemId,
+              p_status: newStatus,
+            },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          refreshOrdersDashboard();
+        } catch (e) {
+          showToast("Could not update item");
+        }
+      }
+
+      function subscribeStaffOrders() {
+        if (staffOrdersChannel) return;
+        staffOrdersChannel = supabaseClient
+          .channel("orders-" + MENU_SLUG)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "order_items",
+              filter: "slug=eq." + MENU_SLUG,
+            },
+            () => {
+              refreshOrdersDashboard();
+              refreshOrdersBadge();
+            },
+          )
+          .subscribe();
+      }
+      function unsubscribeStaffOrders() {
+        if (staffOrdersChannel) {
+          supabaseClient.removeChannel(staffOrdersChannel);
+          staffOrdersChannel = null;
+        }
+      }
+
+      function initOrdersBadge() {
+        refreshOrdersBadge();
+        if (badgeChannel) return;
+        badgeChannel = supabaseClient
+          .channel("orders-badge-" + MENU_SLUG)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "order_items",
+              filter: "slug=eq." + MENU_SLUG,
+            },
+            refreshOrdersBadge,
+          )
+          .subscribe();
+      }
+      async function refreshOrdersBadge() {
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_pending_count",
+            { p_slug: MENU_SLUG },
+          );
+          if (error) throw error;
+          const badge = document.getElementById("ordersBadge");
+          const n = Number(data) || 0;
+          if (badge) {
+            if (n > 0) {
+              badge.textContent = n;
+              badge.classList.remove("hidden");
+            } else {
+              badge.classList.add("hidden");
+            }
+          }
+        } catch (e) {}
+      }
+
       let unlocked = false;
       let qrObj = null;
       let sessionPin = null;
@@ -602,6 +1295,7 @@
         await loadVoteCounts();
         render();
         document.getElementById("app").classList.add("ready");
+        initOrdering();
       }
       function renderLoadError() {
         document.getElementById("bizName").textContent = "Menu unavailable";
@@ -827,9 +1521,13 @@
   <button class="vote-btn dislike ${userVote === "dislike" ? "active" : ""}" type="button" data-item="${it.id}" aria-label="Dislike this item" onclick="castVote('${it.id}','dislike',this)">👎</button>
   ${percentLabel}
 </div>`;
+              const cartCtrl =
+                it.available === false
+                  ? ""
+                  : `<div class="item-cart-ctrl" data-cart-item="${it.id}">${cartCtrlHtml(it.id)}</div>`;
               html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
               ${mediaHtml}<div class="item-body"><div class="item-top"><span class="item-name">${escapeHtml(it.name)}</span><span class="item-badges">${badges}</span></div>
-             ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div></div></div>`;
+             ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div><div class="item-foot" style="padding-top:6px;">${cartCtrl}</div></div></div>`;
             });
             html += "</div>";
           });
@@ -1087,6 +1785,10 @@
         <div class="field"><label>Owner PIN</label><input type="text" inputmode="numeric" maxlength="6" id="fPin" value="${escapeHtml(state.pin)}"></div>
       </div>
       <div class="field">
+        <label>Number of tables</label>
+        <input type="number" min="1" max="200" id="fTableCount" value="${state.business.tableCount || 12}">
+      </div>
+      <div class="field">
         <label>Accent theme</label>
         <div class="theme-row" id="themeRow"></div>
       </div>
@@ -1130,6 +1832,12 @@
         };
         document.getElementById("fUrl").onchange = (e) => {
           state.publishedUrl = e.target.value.trim();
+          markDirty();
+        };
+        document.getElementById("fTableCount").onchange = (e) => {
+          const n = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 12));
+          state.business.tableCount = n;
+          e.target.value = n;
           markDirty();
         };
 
