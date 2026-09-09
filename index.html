@@ -109,6 +109,7 @@
         onclick="closePhoto()"
       >
         <img id="photoLightboxImg" src="" alt="" />
+        <div class="lightbox-cart-ctrl hidden" id="lightboxCartCtrl"></div>
       </div>
       <div class="overlay hidden" id="overlay">
         <div class="panel" id="panel"></div>
@@ -971,6 +972,17 @@
         refreshOrdersDashboard();
       }
 
+      function pinErrorMessage(e, fallback) {
+        const msg = e && e.message ? String(e.message) : "";
+        const m = msg.match(/PIN_LOCKED:(\d+)/);
+        if (m) {
+          const secs = parseInt(m[1], 10);
+          const mins = Math.ceil(secs / 60);
+          return "Too many attempts — try again in " + mins + " min";
+        }
+        return fallback;
+      }
+
       async function tryUnlockOrders() {
         const input = document.getElementById("ordersPinInput");
         const val = input ? input.value.trim() : "";
@@ -988,7 +1000,7 @@
             showToast("Incorrect PIN");
           }
         } catch (e) {
-          showToast("Could not verify PIN — check connection");
+          showToast(pinErrorMessage(e, "Could not verify PIN — check connection"));
         }
       }
 
@@ -1570,7 +1582,7 @@
                 ? `<p class="item-desc">${escapeHtml(it.description)}</p>`
                 : "";
               const mediaHtml = it.image
-                ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this)"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>`
+                ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this, '${it.id}')"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>`
                 : "";
               const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
               const total = vc.likes + vc.dislikes;
@@ -1717,7 +1729,7 @@
         window.scrollTo(0, scrollLockY);
       }
 
-      function openPhoto(url, sourceEl) {
+      function openPhoto(url, sourceEl, itemId) {
         const img = document.getElementById("photoLightboxImg");
         const box = document.getElementById("photoLightbox");
         img.src = url;
@@ -1727,6 +1739,19 @@
           const originX = r.left + r.width / 2;
           const originY = r.top + r.height / 2;
           img.style.transformOrigin = `${originX}px ${originY}px`;
+        }
+        const ctrl = document.getElementById("lightboxCartCtrl");
+        if (ctrl) {
+          const item = itemId ? findMenuItem(itemId) : null;
+          if (item && item.available !== false) {
+            ctrl.dataset.cartItem = itemId;
+            ctrl.innerHTML = cartCtrlHtml(itemId);
+            ctrl.classList.remove("hidden");
+          } else {
+            delete ctrl.dataset.cartItem;
+            ctrl.innerHTML = "";
+            ctrl.classList.add("hidden");
+          }
         }
         requestAnimationFrame(() => box.classList.add("open"));
       }
@@ -1739,6 +1764,12 @@
       document.getElementById("overlay").addEventListener("click", (e) => {
         if (e.target.id === "overlay") closeAdmin();
       });
+      const lightboxCartCtrlEl = document.getElementById("lightboxCartCtrl");
+      if (lightboxCartCtrlEl) {
+        lightboxCartCtrlEl.addEventListener("click", (e) =>
+          e.stopPropagation(),
+        );
+      }
       const tabsLeftBtn = document.getElementById("tabsLeft");
       const tabsRightBtn = document.getElementById("tabsRight");
       const tabsEl = document.getElementById("tabs");
@@ -2053,7 +2084,7 @@
             showToast("Incorrect PIN");
           }
         } catch (e) {
-          showToast("Could not verify PIN — check connection");
+          showToast(pinErrorMessage(e, "Could not verify PIN — check connection"));
         }
       }
 
@@ -2081,7 +2112,9 @@
         if (!error && data === true) {
           sessionPin = newPin;
           showToast("PIN updated");
-        } else showToast("Could not update PIN");
+        } else {
+          showToast(pinErrorMessage(error, "Could not update PIN"));
+        }
       }
 
       function renderQrPreview() {
