@@ -257,6 +257,7 @@
         try {
           localStorage.removeItem(ADMIN_DEVICE_KEY);
         } catch (e) {}
+        setOwnerObserverMode(false);
         closeAdmin();
         unlocked = false;
         sessionPin = null;
@@ -577,11 +578,46 @@
         return null;
       }
 
+      function ownerObserverKey() {
+        return "ownerObserverMode_" + MENU_SLUG;
+      }
+      function getOwnerObserverMode() {
+        try {
+          return (
+            isAdminDevice && localStorage.getItem(ownerObserverKey()) === "1"
+          );
+        } catch (e) {
+          return false;
+        }
+      }
+      function setOwnerObserverMode(on) {
+        try {
+          if (on) localStorage.setItem(ownerObserverKey(), "1");
+          else localStorage.removeItem(ownerObserverKey());
+        } catch (e) {}
+      }
+      function enableOwnerObserverMode() {
+        setOwnerObserverMode(true);
+        document.getElementById("tableGate").classList.add("hidden");
+        document.getElementById("cartFab").classList.add("hidden");
+        openOrders();
+      }
+      function exitOwnerObserverMode() {
+        setOwnerObserverMode(false);
+        closeOrders();
+        renderTableGate();
+        document.getElementById("tableGate").classList.remove("hidden");
+      }
+
       function initOrdering() {
         const saved = getSavedTable();
         loadCart();
         refreshCartUI();
-        if (saved) {
+        if (getOwnerObserverMode()) {
+          document.getElementById("tableGate").classList.add("hidden");
+          document.getElementById("cartFab").classList.add("hidden");
+          openOrders();
+        } else if (saved) {
           selectedTable = saved;
           updateTablePill();
           document.getElementById("cartFab").classList.remove("hidden");
@@ -620,6 +656,13 @@
         for (let i = 1; i <= count; i++) {
           grid += `<button class="table-btn" type="button" onclick="chooseTable('${i}')">${i}</button>`;
         }
+        const ownerOption = isAdminDevice
+          ? `
+      <div class="table-gate-owner">
+        <div class="table-gate-owner-divider"><span>or</span></div>
+        <button class="btn btn-block" type="button" onclick="enableOwnerObserverMode()">👀 Just show me the orders</button>
+      </div>`
+          : "";
         gate.innerHTML = `
     <div class="table-gate-card">
       <h2>Добре дошли!</h2>
@@ -629,6 +672,7 @@
         <input type="text" id="otherTableInput" placeholder="Други...">
         <button class="btn btn-primary" type="button" onclick="chooseOtherTable()">Go</button>
       </div>
+      ${ownerOption}
     </div>`;
       }
 
@@ -960,11 +1004,15 @@
       </div>`;
           return;
         }
+        const exitLink = getOwnerObserverMode()
+          ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
+          : "";
         panel.innerHTML = `
     <div class="panel-header">
       <h2>Live orders</h2>
       <button class="icon-btn" onclick="closeOrders()">✕</button>
     </div>
+    ${exitLink}
     <div class="panel-scroll" id="ordersScroll">
       <p class="empty-state" style="padding:20px 0;">Loading…</p>
     </div>`;
