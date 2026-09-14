@@ -47,8 +47,6 @@
         ></button>
       </header>
 
-      <div class="table-gate hidden" id="tableGate"></div>
-
       <div class="tabs-wrap">
         <button
           class="tab-arrow tab-arrow-left"
@@ -103,6 +101,14 @@
         📋
         <span class="fab-badge hidden" id="ordersBadge">0</span>
       </button>
+      <button
+        class="fab fab-waiter hidden"
+        id="waiterToggle"
+        title="Take an order"
+        aria-label="Take an order"
+      >
+        🧑‍🍳
+      </button>
       <div
         class="photo-lightbox hidden"
         id="photoLightbox"
@@ -121,6 +127,10 @@
 
       <div class="overlay hidden" id="ordersOverlay">
         <div class="panel" id="ordersPanel"></div>
+      </div>
+
+      <div class="overlay hidden" id="waiterOverlay">
+        <div class="panel" id="waiterPanel"></div>
       </div>
 
       <div class="toast hidden" id="toast"></div>
@@ -224,6 +234,8 @@
         if (fab) fab.classList.toggle("hidden", !isAdminDevice);
         const ordersFab = document.getElementById("ordersToggle");
         if (ordersFab) ordersFab.classList.toggle("hidden", !isAdminDevice);
+        const waiterFab = document.getElementById("waiterToggle");
+        if (waiterFab) waiterFab.classList.toggle("hidden", !isAdminDevice);
         if (isAdminDevice) initOrdersBadge();
       }
 
@@ -505,47 +517,11 @@
       let myOrders = []; // this table's order_items, from get_table_orders
       let staffOrdersChannel = null;
       let badgeChannel = null;
+      // Whether a staff member is currently taking an order for a table.
+      // Adding items to an order is only ever possible while this is true,
+      // and this only ever becomes true via the PIN-gated waiter flow.
+      let waiterModeActive = false;
 
-      const TABLE_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
-      function tableStorageKey() {
-        return "table_" + MENU_SLUG;
-      }
-      function getSavedTable() {
-        try {
-          const raw = localStorage.getItem(tableStorageKey());
-          if (!raw) return null;
-          const data = JSON.parse(raw);
-          if (
-            !data ||
-            typeof data.table !== "string" ||
-            typeof data.savedAt !== "number"
-          ) {
-            clearSavedTable();
-            return null;
-          }
-          if (Date.now() - data.savedAt > TABLE_SESSION_TTL_MS) {
-            clearSavedTable();
-            clearCartStorage();
-            return null;
-          }
-          return data.table;
-        } catch (e) {
-          return null;
-        }
-      }
-      function saveTable(t) {
-        try {
-          localStorage.setItem(
-            tableStorageKey(),
-            JSON.stringify({ table: t, savedAt: Date.now() }),
-          );
-        } catch (e) {}
-      }
-      function clearSavedTable() {
-        try {
-          localStorage.removeItem(tableStorageKey());
-        } catch (e) {}
-      }
       function cartStorageKey() {
         return "cart_" + MENU_SLUG;
       }
@@ -578,59 +554,13 @@
         return null;
       }
 
-      function ownerObserverKey() {
-        return "ownerObserverMode_" + MENU_SLUG;
-      }
-      function getOwnerObserverMode() {
-        try {
-          return (
-            isAdminDevice && localStorage.getItem(ownerObserverKey()) === "1"
-          );
-        } catch (e) {
-          return false;
-        }
-      }
-      function setOwnerObserverMode(on) {
-        try {
-          if (on) localStorage.setItem(ownerObserverKey(), "1");
-          else localStorage.removeItem(ownerObserverKey());
-        } catch (e) {}
-      }
-      function enableOwnerObserverMode() {
-        setOwnerObserverMode(true);
-        document.getElementById("tableGate").classList.add("hidden");
-        document.getElementById("cartFab").classList.add("hidden");
-        openOrders();
-      }
-      function exitOwnerObserverMode() {
-        setOwnerObserverMode(false);
-        closeOrders();
-        renderTableGate();
-        document.getElementById("tableGate").classList.remove("hidden");
-      }
-
       function initOrdering() {
-        const saved = getSavedTable();
-        loadCart();
-        refreshCartUI();
-        if (getOwnerObserverMode()) {
-          document.getElementById("tableGate").classList.add("hidden");
-          document.getElementById("cartFab").classList.add("hidden");
-          openOrders();
-        } else if (saved) {
-          selectedTable = saved;
-          updateTablePill();
-          document.getElementById("cartFab").classList.remove("hidden");
-          updateCartFab();
-          loadMyOrders();
-        } else {
-          renderTableGate();
-          document.getElementById("tableGate").classList.remove("hidden");
-        }
         const cartFab = document.getElementById("cartFab");
         if (cartFab) cartFab.onclick = openCart;
         const ordersFab = document.getElementById("ordersToggle");
         if (ordersFab) ordersFab.onclick = openOrders;
+        const waiterFab = document.getElementById("waiterToggle");
+        if (waiterFab) waiterFab.onclick = openWaiter;
         document
           .getElementById("cartOverlay")
           .addEventListener("click", (e) => {
@@ -641,12 +571,114 @@
           .addEventListener("click", (e) => {
             if (e.target.id === "ordersOverlay") closeOrders();
           });
+        document
+          .getElementById("waiterOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "waiterOverlay") closeWaiter();
+          });
       }
 
-      /* ---- table gate ---- */
+      /* ---- waiter order-taking (staff only) ---- */
+      // Adding items to an order, and viewing/editing an in-progress order,
+      // is a staff-only action. A waiter unlocks this with the shared PIN.
+      // Once unlocked, the table picker is a persistent "Tables" screen —
+      // reachable at any time via the always-visible table pill, not just
+      // a one-off gate the waiter passes through once. Tapping a table
+      // shows what's currently on it before starting/continuing its order.
+      // Only after a table is chosen do "+ add" controls appear on the
+      // menu. Customers browsing the public menu never see pricing
+      // controls beyond the plain price itself.
 
-      function renderTableGate() {
-        const gate = document.getElementById("tableGate");
+      let waiterTableStatus = new Map(); // table -> { total, pending, rows }
+      let waiterPeekTable = null; // table currently expanded in the picker
+
+      function openWaiter() {
+        document.getElementById("waiterOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        waiterPeekTable = null;
+        renderWaiterPanel();
+      }
+      function closeWaiter() {
+        document.getElementById("waiterOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      function renderWaiterPanel() {
+        const panel = document.getElementById("waiterPanel");
+        if (!panel) return;
+        if (!unlocked) {
+          panel.innerHTML = `
+      <div class="panel-header">
+        <h2>Waiter access</h2>
+        <button class="icon-btn" onclick="closeWaiter()">✕</button>
+      </div>
+      <div class="panel-scroll">
+        <div class="lock-screen">
+          <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to take an order.</p>
+          <div class="field" style="max-width:180px; margin:14px auto;">
+            <input type="text" inputmode="numeric" maxlength="6" id="waiterPinInput" placeholder="••••••">
+          </div>
+          <button class="btn btn-primary" onclick="tryUnlockWaiter()">Unlock</button>
+        </div>
+      </div>`;
+          return;
+        }
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Tables</h2>
+      <button class="icon-btn" onclick="closeWaiter()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      <p class="table-gate-sub">Tap a table to see what's on it, then start or continue its order.</p>
+      <div class="table-grid" id="waiterTableGrid">${renderWaiterTableGrid()}</div>
+      <div class="table-gate-other">
+        <input type="text" id="waiterOtherTableInput" placeholder="Other table…">
+        <button class="btn btn-primary" type="button" onclick="chooseWaiterOtherTable()">Go</button>
+      </div>
+      <div id="waiterTablePeek"></div>
+    </div>`;
+        wireWaiterTableGrid();
+        renderWaiterTablePeek(waiterPeekTable);
+        loadWaiterTableStatuses().then(() => {
+          const grid = document.getElementById("waiterTableGrid");
+          if (grid) {
+            grid.innerHTML = renderWaiterTableGrid();
+            wireWaiterTableGrid();
+          }
+          renderWaiterTablePeek(waiterPeekTable);
+        });
+      }
+
+      // Pulls every active (not-yet-cleared) order so the picker can show,
+      // per table, how many items are on it and how many are still pending.
+      async function loadWaiterTableStatuses() {
+        if (!unlocked) return;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_active_orders",
+            { p_slug: MENU_SLUG, p_pin: sessionPin },
+          );
+          if (error) throw error;
+          const map = new Map();
+          (data || []).forEach((r) => {
+            const key = String(r.table_number);
+            if (!map.has(key)) map.set(key, { total: 0, pending: 0, rows: [] });
+            const s = map.get(key);
+            s.total += 1;
+            if (r.status === "pending") s.pending += 1;
+            s.rows.push(r);
+          });
+          waiterTableStatus = map;
+        } catch (e) {
+          console.error("Could not load table statuses:", e);
+        }
+      }
+
+      function renderWaiterTableGrid() {
         const count = Math.max(
           1,
           parseInt((state.business && state.business.tableCount) || 12, 10) ||
@@ -654,75 +686,168 @@
         );
         let grid = "";
         for (let i = 1; i <= count; i++) {
-          grid += `<button class="table-btn" type="button" onclick="chooseTable('${i}')">${i}</button>`;
+          const key = String(i);
+          const status = waiterTableStatus.get(key);
+          const occupied = !!(status && status.total);
+          const active =
+            waiterModeActive && selectedTable === key ? " active" : "";
+          const peeking = waiterPeekTable === key ? " active" : "";
+          const badge = occupied
+            ? `<span class="table-btn-badge${status.pending ? " pending" : ""}">${status.total}</span>`
+            : "";
+          grid += `<button class="table-btn${occupied ? " occupied" : ""}${active}${peeking}" type="button" data-table="${key}">${i}${badge}</button>`;
         }
-        const ownerOption = isAdminDevice
-          ? `
-      <div class="table-gate-owner">
-        <div class="table-gate-owner-divider"><span>or</span></div>
-        <button class="btn btn-block" type="button" onclick="enableOwnerObserverMode()">👀 Поръчки</button>
-      </div>`
-          : "";
-        gate.innerHTML = `
-    <div class="table-gate-card">
-      <h2>Добре дошли!</h2>
-      <p class="table-gate-sub">На коя маса сядате?</p>
-      <div class="table-grid">${grid}</div>
-      <div class="table-gate-other">
-        <input type="text" id="otherTableInput" placeholder="Други...">
-        <button class="btn btn-primary" type="button" onclick="chooseOtherTable()">Go</button>
-      </div>
-      ${ownerOption}
-    </div>`;
+        return grid;
       }
 
-      function chooseTable(t) {
-        setTable(String(t));
+      function wireWaiterTableGrid() {
+        document
+          .querySelectorAll("#waiterTableGrid .table-btn")
+          .forEach((btn) => {
+            btn.onclick = () => peekWaiterTable(btn.dataset.table);
+          });
       }
-      function chooseOtherTable() {
-        const input = document.getElementById("otherTableInput");
+
+      // Tapping a table toggles an inline preview of what's currently on
+      // it (so the waiter can see at a glance before committing), with a
+      // button underneath to actually start or continue taking its order.
+      function peekWaiterTable(table) {
+        waiterPeekTable = waiterPeekTable === table ? null : table;
+        const grid = document.getElementById("waiterTableGrid");
+        if (grid) {
+          grid.innerHTML = renderWaiterTableGrid();
+          wireWaiterTableGrid();
+        }
+        renderWaiterTablePeek(waiterPeekTable);
+      }
+
+      function renderWaiterTablePeek(table) {
+        const wrap = document.getElementById("waiterTablePeek");
+        if (!wrap) return;
+        if (!table) {
+          wrap.innerHTML = "";
+          return;
+        }
+        const status = waiterTableStatus.get(table);
+        const groups =
+          status && status.rows.length
+            ? groupOrdersByOrderId(status.rows)
+            : [];
+        const itemsHtml = groups.length
+          ? groups
+              .map(
+                (g) => `
+        <div class="order-card">
+          <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+          ${g.items
+            .map(
+              (it) => `
+          <div class="order-item-row ${it.status === "done" ? "done" : ""}">
+            <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          </div>`,
+            )
+            .join("")}
+          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+        </div>`,
+              )
+              .join("")
+          : `<p class="empty-state" style="padding:6px 0 14px;">Nothing on this table yet.</p>`;
+        wrap.innerHTML = `
+      <div class="waiter-peek-card">
+        <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(table)}</div>
+        ${itemsHtml}
+        <button class="btn btn-primary btn-block" type="button" onclick="startWaiterOrder('${escapeHtml(table).replace(/'/g, "\\'")}')">${status && status.total ? "Continue order" : "Start order"}</button>
+      </div>`;
+      }
+
+      async function tryUnlockWaiter() {
+        const input = document.getElementById("waiterPinInput");
+        const val = input ? input.value.trim() : "";
+        try {
+          const { data, error } = await supabaseClient.rpc("check_pin", {
+            p_slug: MENU_SLUG,
+            p_pin: val,
+          });
+          if (error) throw error;
+          if (data === true) {
+            sessionPin = val;
+            unlocked = true;
+            renderWaiterPanel();
+            updateTablePill();
+          } else {
+            showToast("Incorrect PIN");
+          }
+        } catch (e) {
+          showToast(pinErrorMessage(e, "Could not verify PIN — check connection"));
+        }
+      }
+
+      function chooseWaiterOtherTable() {
+        const input = document.getElementById("waiterOtherTableInput");
         const val = input ? input.value.trim() : "";
         if (!val) {
           showToast("Enter a table name first");
           return;
         }
-        setTable(val);
+        peekWaiterTable(val);
       }
-      function setTable(t) {
-        selectedTable = t;
-        saveTable(t);
-        document.getElementById("tableGate").classList.add("hidden");
-        updateTablePill();
-        document.getElementById("cartFab").classList.remove("hidden");
-        loadMyOrders();
-      }
-      function updateTablePill() {
-        const pill = document.getElementById("tablePill");
-        if (!pill) return;
-        if (selectedTable) {
-          pill.textContent = "Маса " + selectedTable + " · Смяна";
-          pill.classList.remove("hidden");
-        } else {
-          pill.classList.add("hidden");
-        }
-      }
-      function confirmChangeTable() {
-        const ok = confirm(
-          "Сигурни ли сте? Всички артикули в количката ви ще бъдат изтрити.",
-        );
-        if (!ok) return;
+
+      function startWaiterOrder(table) {
+        selectedTable = table;
+        waiterModeActive = true;
         cart = [];
         cartNote = "";
         saveCart();
-        clearSavedTable();
+        waiterPeekTable = null;
+        closeWaiter();
+        updateTablePill();
+        document.getElementById("cartFab").classList.remove("hidden");
+        updateCartFab();
+        loadMyOrders();
+        renderMenu();
+        showToast("Taking order for table " + table);
+      }
+
+      function endWaiterSession() {
+        cart = [];
+        cartNote = "";
+        saveCart();
         selectedTable = null;
+        waiterModeActive = false;
         myOrders = [];
-        closeCart();
         document.getElementById("cartFab").classList.add("hidden");
         updateCartFab();
         updateTablePill();
-        renderTableGate();
-        document.getElementById("tableGate").classList.remove("hidden");
+        renderMenu();
+      }
+
+      // The table pill is the always-available entry point into the
+      // table picker: once a waiter is PIN-unlocked it stays visible
+      // whether or not a table is currently selected, so switching (or
+      // choosing a first table) is never more than one tap away.
+      function updateTablePill() {
+        const pill = document.getElementById("tablePill");
+        if (!pill) return;
+        if (!isAdminDevice || !unlocked) {
+          pill.classList.add("hidden");
+          return;
+        }
+        pill.textContent =
+          waiterModeActive && selectedTable
+            ? "Table " + selectedTable + " · Switch"
+            : "Choose table";
+        pill.classList.remove("hidden");
+      }
+      function confirmChangeTable() {
+        if (waiterModeActive && selectedTable) {
+          const ok = confirm(
+            "Switch tables? Any unsent items in this order will be cleared.",
+          );
+          if (!ok) return;
+          closeCart();
+          endWaiterSession();
+        }
+        openWaiter();
       }
 
       /* ---- cart ---- */

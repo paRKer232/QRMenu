@@ -1245,6 +1245,7 @@ textarea {
   margin-bottom: 20px;
 }
 .table-btn {
+  position: relative;
   aspect-ratio: 1;
   border-radius: 12px;
   border: 1px solid var(--hairline-strong);
@@ -1266,6 +1267,46 @@ textarea {
 .table-btn:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+.table-btn.occupied {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.table-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.table-btn-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--muted);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+.table-btn-badge.pending {
+  background: #ef4444;
+}
+.waiter-peek-card {
+  border: 1px solid var(--hairline-strong);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 14px;
+  margin-bottom: 18px;
+}
+.waiter-peek-card .order-card:last-of-type {
+  margin-bottom: 12px;
 }
 .table-gate-other {
   display: flex;
