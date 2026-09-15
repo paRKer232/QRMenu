@@ -43,7 +43,7 @@
           class="table-pill hidden"
           id="tablePill"
           type="button"
-          onclick="confirmChangeTable()"
+          onclick="openCart()"
         ></button>
       </header>
 
@@ -86,8 +86,8 @@
       <button
         class="fab cart-fab hidden"
         id="cartFab"
-        title="Your order"
-        aria-label="Your order"
+        title="Take order"
+        aria-label="Take order"
       >
         🧾
         <span class="fab-badge hidden" id="cartBadge">0</span>
@@ -102,12 +102,12 @@
         <span class="fab-badge hidden" id="ordersBadge">0</span>
       </button>
       <button
-        class="fab fab-waiter hidden"
-        id="waiterToggle"
-        title="Take an order"
-        aria-label="Take an order"
+        class="fab callwaiter-fab hidden"
+        id="callWaiterFab"
+        title="Call waiter"
+        aria-label="Call waiter"
       >
-        🧑‍🍳
+        🔔
       </button>
       <div
         class="photo-lightbox hidden"
@@ -129,8 +129,8 @@
         <div class="panel" id="ordersPanel"></div>
       </div>
 
-      <div class="overlay hidden" id="waiterOverlay">
-        <div class="panel" id="waiterPanel"></div>
+      <div class="overlay hidden" id="callOverlay">
+        <div class="panel" id="callPanel"></div>
       </div>
 
       <div class="toast hidden" id="toast"></div>
@@ -187,6 +187,10 @@
 
       const ADMIN_HASH = "owner";
       const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
+      // Session-scoped (survives a page refresh, cleared when the tab closes)
+      // so staff/owner don't have to re-enter their PIN on every reload.
+      const ADMIN_SESSION_KEY = "menuAdminSession_" + MENU_SLUG;
+      const ORDERS_SESSION_KEY = "menuOrdersSession_" + MENU_SLUG;
 
       let isAdminDevice = false;
 
@@ -234,8 +238,6 @@
         if (fab) fab.classList.toggle("hidden", !isAdminDevice);
         const ordersFab = document.getElementById("ordersToggle");
         if (ordersFab) ordersFab.classList.toggle("hidden", !isAdminDevice);
-        const waiterFab = document.getElementById("waiterToggle");
-        if (waiterFab) waiterFab.classList.toggle("hidden", !isAdminDevice);
         if (isAdminDevice) initOrdersBadge();
       }
 
@@ -271,8 +273,15 @@
         } catch (e) {}
         setOwnerObserverMode(false);
         closeAdmin();
-        unlocked = false;
-        sessionPin = null;
+        unlockedAdmin = false;
+        sessionPinAdmin = null;
+        unlockedOrders = false;
+        sessionPinOrders = null;
+        staffRole = null;
+        try {
+          sessionStorage.removeItem(ADMIN_SESSION_KEY);
+          sessionStorage.removeItem(ORDERS_SESSION_KEY);
+        } catch (e) {}
         initAdminVisibility();
         showToast("Admin access removed from this device");
       }
@@ -509,40 +518,31 @@
             .forEach((b) => (b.disabled = false));
         }
       }
-      /* ---------------- ORDERING SYSTEM ---------------- */
+      /* ---------------- ORDERING SYSTEM (staff-only) ---------------- */
+      // Customers no longer order for themselves — only a device unlocked
+      // with a staff PIN (owner or waiter) can pick a table here and add
+      // items to it. Regular visitors only get the "call waiter" button.
 
-      let selectedTable = null;
-      let cart = []; // { item_id, name, price, qty }
-      let cartNote = "";
-      let myOrders = []; // this table's order_items, from get_table_orders
-      let staffOrdersChannel = null;
-      let badgeChannel = null;
-      // Whether a staff member is currently taking an order for a table.
-      // Adding items to an order is only ever possible while this is true,
-      // and this only ever becomes true via the PIN-gated waiter flow.
-      let waiterModeActive = false;
-
-      function cartStorageKey() {
-        return "cart_" + MENU_SLUG;
-      }
-      function saveCart() {
-        try {
-          localStorage.setItem(cartStorageKey(), JSON.stringify(cart));
-        } catch (e) {}
-      }
-      function clearCartStorage() {
-        try {
-          localStorage.removeItem(cartStorageKey());
-        } catch (e) {}
-      }
-      function loadCart() {
-        try {
-          const raw = localStorage.getItem(cartStorageKey());
-          cart = raw ? JSON.parse(raw) : [];
-        } catch (e) {
-          cart = [];
-        }
-      }
+      let selectedTable = null; // table currently being taken, staff-side
+      let staffOrderMode = false;
+      // One in-progress (unsent) cart per table, so a waiter can start an
+      // order for table 4, switch to table 7, then come back to table 4
+      // later without losing what they'd already added.
+      let cartsByTable = {}; // table -> { items: [{item_id,name,price,qty}], note: "" }
+      let myOrders = []; // selectedTable's already-sent order_items
+      // These used to be Supabase Realtime (postgres_changes) subscriptions.
+      // That requires an RLS SELECT policy on order_items/service_requests
+      // for the anon role, which would let anyone holding the public anon
+      // key query every table's orders and call-waiter messages directly
+      // via REST, bypassing the staff PIN entirely — and since this project
+      // may host more than one menu (see MENU_SLUG), that means every
+      // café's data, not just this one. Polling keeps all of that data
+      // behind the PIN-gated RPCs instead. See the migration notes for the
+      // realtime alternative if you'd rather trade that off for instant push.
+      let staffOrdersPollTimer = null;
+      let badgePollTimer = null;
+      let serviceRequestsPollTimer = null;
+      let callWaiterTable = null; // last table a customer called from, remembered for convenience
 
       function findMenuItem(itemId) {
         for (const sec of state.sections || []) {
@@ -554,13 +554,64 @@
         return null;
       }
 
+      function ownerObserverKey() {
+        return "ownerObserverMode_" + MENU_SLUG;
+      }
+      function getOwnerObserverMode() {
+        try {
+          return (
+            isAdminDevice && localStorage.getItem(ownerObserverKey()) === "1"
+          );
+        } catch (e) {
+          return false;
+        }
+      }
+      function setOwnerObserverMode(on) {
+        try {
+          if (on) localStorage.setItem(ownerObserverKey(), "1");
+          else localStorage.removeItem(ownerObserverKey());
+        } catch (e) {}
+      }
+      function enableOwnerObserverMode() {
+        setOwnerObserverMode(true);
+        document.getElementById("cartFab").classList.add("hidden");
+        document.getElementById("callWaiterFab").classList.add("hidden");
+        openOrders();
+      }
+      function exitOwnerObserverMode() {
+        setOwnerObserverMode(false);
+        closeOrders();
+        initOrdering();
+      }
+
+      function callTableStorageKey() {
+        return "callWaiterTable_" + MENU_SLUG;
+      }
+
       function initOrdering() {
+        staffOrderMode = false;
+        selectedTable = null;
+        cartsByTable = {};
+        myOrders = [];
+        try {
+          callWaiterTable = localStorage.getItem(callTableStorageKey());
+        } catch (e) {
+          callWaiterTable = null;
+        }
+        document.getElementById("cartFab").classList.add("hidden");
+        updateTablePill();
+        if (getOwnerObserverMode()) {
+          document.getElementById("callWaiterFab").classList.add("hidden");
+          openOrders();
+        } else {
+          document.getElementById("callWaiterFab").classList.remove("hidden");
+        }
         const cartFab = document.getElementById("cartFab");
         if (cartFab) cartFab.onclick = openCart;
         const ordersFab = document.getElementById("ordersToggle");
         if (ordersFab) ordersFab.onclick = openOrders;
-        const waiterFab = document.getElementById("waiterToggle");
-        if (waiterFab) waiterFab.onclick = openWaiter;
+        const callFab = document.getElementById("callWaiterFab");
+        if (callFab) callFab.onclick = openCallWaiter;
         document
           .getElementById("cartOverlay")
           .addEventListener("click", (e) => {
@@ -572,113 +623,30 @@
             if (e.target.id === "ordersOverlay") closeOrders();
           });
         document
-          .getElementById("waiterOverlay")
+          .getElementById("callOverlay")
           .addEventListener("click", (e) => {
-            if (e.target.id === "waiterOverlay") closeWaiter();
+            if (e.target.id === "callOverlay") closeCallWaiter();
           });
       }
 
-      /* ---- waiter order-taking (staff only) ---- */
-      // Adding items to an order, and viewing/editing an in-progress order,
-      // is a staff-only action. A waiter unlocks this with the shared PIN.
-      // Once unlocked, the table picker is a persistent "Tables" screen —
-      // reachable at any time via the always-visible table pill, not just
-      // a one-off gate the waiter passes through once. Tapping a table
-      // shows what's currently on it before starting/continuing its order.
-      // Only after a table is chosen do "+ add" controls appear on the
-      // menu. Customers browsing the public menu never see pricing
-      // controls beyond the plain price itself.
+      /* ---- call waiter (customer-facing) ---- */
 
-      let waiterTableStatus = new Map(); // table -> { total, pending, rows }
-      let waiterPeekTable = null; // table currently expanded in the picker
-
-      function openWaiter() {
-        document.getElementById("waiterOverlay").classList.remove("hidden");
+      function openCallWaiter() {
+        document.getElementById("callOverlay").classList.remove("hidden");
         scrollLockY = window.scrollY;
         document.body.style.overflow = "hidden";
         document.body.style.touchAction = "none";
-        waiterPeekTable = null;
-        renderWaiterPanel();
+        renderCallWaiterPanel();
       }
-      function closeWaiter() {
-        document.getElementById("waiterOverlay").classList.add("hidden");
+      function closeCallWaiter() {
+        document.getElementById("callOverlay").classList.add("hidden");
         document.body.style.overflow = "";
         document.body.style.touchAction = "";
         window.scrollTo(0, scrollLockY);
       }
-
-      function renderWaiterPanel() {
-        const panel = document.getElementById("waiterPanel");
+      function renderCallWaiterPanel() {
+        const panel = document.getElementById("callPanel");
         if (!panel) return;
-        if (!unlocked) {
-          panel.innerHTML = `
-      <div class="panel-header">
-        <h2>Waiter access</h2>
-        <button class="icon-btn" onclick="closeWaiter()">✕</button>
-      </div>
-      <div class="panel-scroll">
-        <div class="lock-screen">
-          <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to take an order.</p>
-          <div class="field" style="max-width:180px; margin:14px auto;">
-            <input type="text" inputmode="numeric" maxlength="6" id="waiterPinInput" placeholder="••••••">
-          </div>
-          <button class="btn btn-primary" onclick="tryUnlockWaiter()">Unlock</button>
-        </div>
-      </div>`;
-          return;
-        }
-        panel.innerHTML = `
-    <div class="panel-header">
-      <h2>Tables</h2>
-      <button class="icon-btn" onclick="closeWaiter()">✕</button>
-    </div>
-    <div class="panel-scroll">
-      <p class="table-gate-sub">Tap a table to see what's on it, then start or continue its order.</p>
-      <div class="table-grid" id="waiterTableGrid">${renderWaiterTableGrid()}</div>
-      <div class="table-gate-other">
-        <input type="text" id="waiterOtherTableInput" placeholder="Other table…">
-        <button class="btn btn-primary" type="button" onclick="chooseWaiterOtherTable()">Go</button>
-      </div>
-      <div id="waiterTablePeek"></div>
-    </div>`;
-        wireWaiterTableGrid();
-        renderWaiterTablePeek(waiterPeekTable);
-        loadWaiterTableStatuses().then(() => {
-          const grid = document.getElementById("waiterTableGrid");
-          if (grid) {
-            grid.innerHTML = renderWaiterTableGrid();
-            wireWaiterTableGrid();
-          }
-          renderWaiterTablePeek(waiterPeekTable);
-        });
-      }
-
-      // Pulls every active (not-yet-cleared) order so the picker can show,
-      // per table, how many items are on it and how many are still pending.
-      async function loadWaiterTableStatuses() {
-        if (!unlocked) return;
-        try {
-          const { data, error } = await supabaseClient.rpc(
-            "get_active_orders",
-            { p_slug: MENU_SLUG, p_pin: sessionPin },
-          );
-          if (error) throw error;
-          const map = new Map();
-          (data || []).forEach((r) => {
-            const key = String(r.table_number);
-            if (!map.has(key)) map.set(key, { total: 0, pending: 0, rows: [] });
-            const s = map.get(key);
-            s.total += 1;
-            if (r.status === "pending") s.pending += 1;
-            s.rows.push(r);
-          });
-          waiterTableStatus = map;
-        } catch (e) {
-          console.error("Could not load table statuses:", e);
-        }
-      }
-
-      function renderWaiterTableGrid() {
         const count = Math.max(
           1,
           parseInt((state.business && state.business.tableCount) || 12, 10) ||
@@ -686,174 +654,177 @@
         );
         let grid = "";
         for (let i = 1; i <= count; i++) {
-          const key = String(i);
-          const status = waiterTableStatus.get(key);
-          const occupied = !!(status && status.total);
           const active =
-            waiterModeActive && selectedTable === key ? " active" : "";
-          const peeking = waiterPeekTable === key ? " active" : "";
-          const badge = occupied
-            ? `<span class="table-btn-badge${status.pending ? " pending" : ""}">${status.total}</span>`
-            : "";
-          grid += `<button class="table-btn${occupied ? " occupied" : ""}${active}${peeking}" type="button" data-table="${key}">${i}${badge}</button>`;
+            String(i) === String(callWaiterTable) ? " active" : "";
+          grid += `<button class="table-btn${active}" type="button" onclick="pickCallWaiterTable('${i}')">${i}</button>`;
         }
-        return grid;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Call waiter</h2>
+      <button class="icon-btn" onclick="closeCallWaiter()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      <p class="cart-table-picker-label" style="margin-bottom:10px;">Коя маса сте вие?</p>
+      <div class="table-grid">${grid}</div>
+      <div class="table-gate-other">
+        <input type="text" id="callOtherTableInput" placeholder="Други..." value="${escapeHtml(callWaiterTable && !(parseInt(callWaiterTable, 10) >= 1 && parseInt(callWaiterTable, 10) <= count) ? callWaiterTable : "")}">
+        <button class="btn btn-primary" type="button" onclick="pickOtherCallWaiterTable()">Go</button>
+      </div>
+      <div class="field" style="margin-top:14px;">
+        <label>Съобщение (по избор)</label>
+        <textarea id="callWaiterMessage" placeholder="например - чакаме сметката"></textarea>
+      </div>
+      <button class="btn btn-primary btn-block" id="callWaiterSendBtn" onclick="sendCallWaiter()">Извикай сервитьор</button>
+    </div>`;
       }
-
-      function wireWaiterTableGrid() {
-        document
-          .querySelectorAll("#waiterTableGrid .table-btn")
-          .forEach((btn) => {
-            btn.onclick = () => peekWaiterTable(btn.dataset.table);
-          });
+      function pickCallWaiterTable(t) {
+        callWaiterTable = String(t);
+        renderCallWaiterPanel();
       }
-
-      // Tapping a table toggles an inline preview of what's currently on
-      // it (so the waiter can see at a glance before committing), with a
-      // button underneath to actually start or continue taking its order.
-      function peekWaiterTable(table) {
-        waiterPeekTable = waiterPeekTable === table ? null : table;
-        const grid = document.getElementById("waiterTableGrid");
-        if (grid) {
-          grid.innerHTML = renderWaiterTableGrid();
-          wireWaiterTableGrid();
-        }
-        renderWaiterTablePeek(waiterPeekTable);
-      }
-
-      function renderWaiterTablePeek(table) {
-        const wrap = document.getElementById("waiterTablePeek");
-        if (!wrap) return;
-        if (!table) {
-          wrap.innerHTML = "";
-          return;
-        }
-        const status = waiterTableStatus.get(table);
-        const groups =
-          status && status.rows.length
-            ? groupOrdersByOrderId(status.rows)
-            : [];
-        const itemsHtml = groups.length
-          ? groups
-              .map(
-                (g) => `
-        <div class="order-card">
-          <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-          ${g.items
-            .map(
-              (it) => `
-          <div class="order-item-row ${it.status === "done" ? "done" : ""}">
-            <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
-          </div>`,
-            )
-            .join("")}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
-        </div>`,
-              )
-              .join("")
-          : `<p class="empty-state" style="padding:6px 0 14px;">Nothing on this table yet.</p>`;
-        wrap.innerHTML = `
-      <div class="waiter-peek-card">
-        <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(table)}</div>
-        ${itemsHtml}
-        <button class="btn btn-primary btn-block" type="button" onclick="startWaiterOrder('${escapeHtml(table).replace(/'/g, "\\'")}')">${status && status.total ? "Continue order" : "Start order"}</button>
-      </div>`;
-      }
-
-      async function tryUnlockWaiter() {
-        const input = document.getElementById("waiterPinInput");
-        const val = input ? input.value.trim() : "";
-        try {
-          const { data, error } = await supabaseClient.rpc("check_pin", {
-            p_slug: MENU_SLUG,
-            p_pin: val,
-          });
-          if (error) throw error;
-          if (data === true) {
-            sessionPin = val;
-            unlocked = true;
-            renderWaiterPanel();
-            updateTablePill();
-          } else {
-            showToast("Incorrect PIN");
-          }
-        } catch (e) {
-          showToast(pinErrorMessage(e, "Could not verify PIN — check connection"));
-        }
-      }
-
-      function chooseWaiterOtherTable() {
-        const input = document.getElementById("waiterOtherTableInput");
+      function pickOtherCallWaiterTable() {
+        const input = document.getElementById("callOtherTableInput");
         const val = input ? input.value.trim() : "";
         if (!val) {
           showToast("Enter a table name first");
           return;
         }
-        peekWaiterTable(val);
+        callWaiterTable = val;
+        renderCallWaiterPanel();
+      }
+      async function sendCallWaiter() {
+        if (!callWaiterTable) {
+          showToast("Please choose your table first");
+          return;
+        }
+        const msgInput = document.getElementById("callWaiterMessage");
+        const message = msgInput ? msgInput.value.trim() : "";
+        const btn = document.getElementById("callWaiterSendBtn");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Sending…";
+        }
+        try {
+          const { error } = await supabaseClient.rpc("request_service", {
+            p_slug: MENU_SLUG,
+            p_table: callWaiterTable,
+            p_message: message || null,
+          });
+          if (error) throw error;
+          try {
+            localStorage.setItem(callTableStorageKey(), callWaiterTable);
+          } catch (e) {}
+          showToast("Извикахте сервитьор!");
+          closeCallWaiter();
+        } catch (e) {
+          console.error("Call waiter failed:", e);
+          showToast("Could not reach staff, try again");
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Извикай сервитьор";
+          }
+        }
       }
 
-      function startWaiterOrder(table) {
-        selectedTable = table;
-        waiterModeActive = true;
-        cart = [];
-        cartNote = "";
-        saveCart();
-        waiterPeekTable = null;
-        closeWaiter();
+      /* ---- table picker (staff: pick a table to start taking an order) ---- */
+
+      function staffTableGridHtml() {
+        const count = Math.max(
+          1,
+          parseInt((state.business && state.business.tableCount) || 12, 10) ||
+            12,
+        );
+        let grid = "";
+        for (let i = 1; i <= count; i++) {
+          const t = String(i);
+          const tableCart = cartsByTable[t];
+          const pendingQty = tableCart
+            ? tableCart.items.reduce((s, c) => s + c.qty, 0)
+            : 0;
+          const active =
+            staffOrderMode && t === String(selectedTable) ? " active" : "";
+          const occupied = pendingQty > 0 ? " occupied" : "";
+          const badge =
+            pendingQty > 0
+              ? `<span class="table-btn-badge pending">${pendingQty}</span>`
+              : "";
+          grid += `<button class="table-btn${active}${occupied}" type="button" onclick="startTakingOrder('${i}')">${i}${badge}</button>`;
+        }
+        return grid;
+      }
+      function startTakingOrderOther() {
+        const input = document.getElementById("ordersOtherTableInput");
+        const val = input ? input.value.trim() : "";
+        if (!val) {
+          showToast("Enter a table name first");
+          return;
+        }
+        startTakingOrder(val);
+      }
+
+      // Staff picks a table from the Live Orders panel to start (or resume)
+      // building an order for it. This switches the underlying menu into
+      // "add to order" mode so they can tap items to add them. Tables are
+      // independent — picking a different table never touches another
+      // table's unsent items, so a waiter can freely bounce between several
+      // tables mid-order.
+      function startTakingOrder(t) {
+        t = String(t);
+        selectedTable = t;
+        staffOrderMode = true;
+        myOrders = [];
         updateTablePill();
         document.getElementById("cartFab").classList.remove("hidden");
+        document.getElementById("callWaiterFab").classList.add("hidden");
         updateCartFab();
+        render();
         loadMyOrders();
-        renderMenu();
-        showToast("Taking order for table " + table);
+        closeOrders();
       }
 
-      function endWaiterSession() {
-        cart = [];
-        cartNote = "";
-        saveCart();
+      // Steps back to the Live Orders table grid. The current table's
+      // unsent cart (if any) is kept as-is so the waiter can pick it back
+      // up later — only placeOrder() clears a table's cart.
+      function finishTakingOrder() {
+        staffOrderMode = false;
         selectedTable = null;
-        waiterModeActive = false;
         myOrders = [];
         document.getElementById("cartFab").classList.add("hidden");
-        updateCartFab();
         updateTablePill();
-        renderMenu();
+        render();
+        closeCart();
+        if (!getOwnerObserverMode()) {
+          document.getElementById("callWaiterFab").classList.remove("hidden");
+        }
+        openOrders();
       }
 
-      // The table pill is the always-available entry point into the
-      // table picker: once a waiter is PIN-unlocked it stays visible
-      // whether or not a table is currently selected, so switching (or
-      // choosing a first table) is never more than one tap away.
       function updateTablePill() {
         const pill = document.getElementById("tablePill");
         if (!pill) return;
-        if (!isAdminDevice || !unlocked) {
+        if (staffOrderMode && selectedTable) {
+          pill.textContent = "Taking order — Маса " + selectedTable;
+          pill.classList.remove("hidden");
+        } else {
           pill.classList.add("hidden");
-          return;
         }
-        pill.textContent =
-          waiterModeActive && selectedTable
-            ? "Table " + selectedTable + " · Switch"
-            : "Choose table";
-        pill.classList.remove("hidden");
-      }
-      function confirmChangeTable() {
-        if (waiterModeActive && selectedTable) {
-          const ok = confirm(
-            "Switch tables? Any unsent items in this order will be cleared.",
-          );
-          if (!ok) return;
-          closeCart();
-          endWaiterSession();
-        }
-        openWaiter();
       }
 
-      /* ---- cart ---- */
+      /* ---- cart (staff order-in-progress) ---- */
+
+      // Returns (creating if needed) the unsent cart for whichever table is
+      // currently selected. Every cart read/write goes through this so each
+      // table's in-progress items stay independent of the others.
+      function activeCart() {
+        if (!selectedTable) return { items: [], note: "" };
+        if (!cartsByTable[selectedTable]) {
+          cartsByTable[selectedTable] = { items: [], note: "" };
+        }
+        return cartsByTable[selectedTable];
+      }
 
       function cartQty(itemId) {
-        const line = cart.find((c) => c.item_id === itemId);
+        const line = activeCart().items.find((c) => c.item_id === itemId);
         return line ? line.qty : 0;
       }
       function cartCtrlHtml(itemId) {
@@ -878,28 +849,30 @@
       }
 
       function addToCart(itemId) {
+        if (!staffOrderMode) return;
         if (!cartTapAllowed("add:" + itemId)) return;
         const item = findMenuItem(itemId);
         if (!item || item.available === false) return;
-        const line = cart.find((c) => c.item_id === itemId);
+        const items = activeCart().items;
+        const line = items.find((c) => c.item_id === itemId);
         if (line) line.qty++;
         else
-          cart.push({
+          items.push({
             item_id: itemId,
             name: item.name,
             price: item.price,
             qty: 1,
           });
-        saveCart();
         refreshCartUI();
       }
       function decCartItem(itemId) {
+        if (!staffOrderMode) return;
         if (!cartTapAllowed("dec:" + itemId)) return;
-        const idx = cart.findIndex((c) => c.item_id === itemId);
+        const items = activeCart().items;
+        const idx = items.findIndex((c) => c.item_id === itemId);
         if (idx === -1) return;
-        cart[idx].qty--;
-        if (cart[idx].qty <= 0) cart.splice(idx, 1);
-        saveCart();
+        items[idx].qty--;
+        if (items[idx].qty <= 0) items.splice(idx, 1);
         refreshCartUI();
       }
       function refreshCartUI() {
@@ -913,7 +886,7 @@
         }
       }
       function updateCartFab() {
-        const totalQty = cart.reduce((s, c) => s + c.qty, 0);
+        const totalQty = activeCart().items.reduce((s, c) => s + c.qty, 0);
         const badge = document.getElementById("cartBadge");
         if (!badge) return;
         if (totalQty > 0) {
@@ -961,18 +934,19 @@
         const panel = document.getElementById("cartPanel");
         if (!panel) return;
         const currency = (state.business && state.business.currency) || "$";
+        const ac = activeCart();
         let cartHtml = "";
-        if (!cart.length) {
+        if (!ac.items.length) {
           cartHtml =
             '<p class="empty-state" style="padding:20px 0;">Количката ви е празна. Докоснете "+ Добави" на продукт от менюто за да я добавите в количката.</p>';
         } else {
-          const total = cart.reduce(
+          const total = ac.items.reduce(
             (s, c) => s + (parseFloat(c.price) || 0) * c.qty,
             0,
           );
           cartHtml =
             '<div class="cart-lines">' +
-            cart
+            ac.items
               .map(
                 (c) => `
       <div class="cart-line">
@@ -989,7 +963,7 @@
               )
               .join("") +
             "</div>" +
-            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="например - без лук">${escapeHtml(cartNote)}</textarea></div>` +
+            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="например - без лук">${escapeHtml(ac.note)}</textarea></div>` +
             `<div class="cart-total-row"><span>Total</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>` +
             `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Поръчай</button>`;
         }
@@ -997,7 +971,7 @@
         let sentHtml = "";
         if (myOrders.length) {
           sentHtml =
-            '<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Sent to the kitchen</div>' +
+            `<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Sent to the kitchen</div>` +
             groupOrdersByOrderId(myOrders)
               .map(
                 (g) => `
@@ -1020,26 +994,27 @@
 
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Маса ${escapeHtml(selectedTable || "")}</h2>
+      <h2>Table ${escapeHtml(selectedTable || "")}</h2>
       <button class="icon-btn" onclick="closeCart()">✕</button>
     </div>
     <div class="panel-scroll">
       ${cartHtml}
       ${sentHtml}
       <div class="divider"></div>
-      <button class="btn btn-block" onclick="confirmChangeTable()">Смяна на масата</button>
+      <button class="btn btn-block" onclick="finishTakingOrder()">Finish — back to Live orders</button>
     </div>`;
 
         const noteInput = document.getElementById("cartNoteInput");
         if (noteInput) {
           noteInput.onchange = () => {
-            cartNote = noteInput.value;
+            activeCart().note = noteInput.value;
           };
         }
       }
 
       async function placeOrder() {
-        if (!cart.length || !selectedTable) return;
+        const ac = activeCart();
+        if (!ac.items.length || !selectedTable) return;
         const btn = document.getElementById("placeOrderBtn");
         if (btn) {
           btn.disabled = true;
@@ -1048,26 +1023,25 @@
         try {
           const { error } = await supabaseClient.rpc("place_order", {
             p_slug: MENU_SLUG,
+            p_pin: sessionPinOrders,
             p_table: selectedTable,
-            p_items: cart.map((c) => ({
+            p_items: ac.items.map((c) => ({
               item_id: c.item_id,
               name: c.name,
               price: c.price,
               qty: c.qty,
             })),
-            p_note: cartNote ? cartNote.trim() : null,
+            p_note: ac.note ? ac.note.trim() : null,
           });
           if (error) throw error;
-          cart = [];
-          cartNote = "";
-          saveCart();
+          delete cartsByTable[selectedTable];
           updateCartFab();
-          showToast("Поръчката ви е приета!");
+          showToast("Изпратено в кухнята!");
           await loadMyOrders();
           renderCartPanel();
         } catch (e) {
           console.error("Order failed:", e);
-          showToast("Could not send your order, try again");
+          showToast("Could not send the order, try again");
           if (btn) {
             btn.disabled = false;
             btn.textContent = "Поръчай";
@@ -1083,7 +1057,7 @@
         try {
           const { data, error } = await supabaseClient.rpc(
             "get_table_orders",
-            { p_slug: MENU_SLUG, p_table: selectedTable },
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders, p_table: selectedTable },
           );
           if (error) throw error;
           myOrders = data || [];
@@ -1107,12 +1081,13 @@
         document.body.style.touchAction = "";
         window.scrollTo(0, scrollLockY);
         unsubscribeStaffOrders();
+        unsubscribeServiceRequests();
       }
 
       function renderOrders() {
         const panel = document.getElementById("ordersPanel");
         if (!panel) return;
-        if (!unlocked) {
+        if (!unlockedOrders) {
           panel.innerHTML = `
       <div class="panel-header">
         <h2>Live orders</h2>
@@ -1120,7 +1095,7 @@
       </div>
       <div class="panel-scroll">
         <div class="lock-screen">
-          <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to view live orders.</p>
+          <p style="color:var(--muted); font-size:13.5px;">Enter your staff PIN to view live orders.</p>
           <div class="field" style="max-width:180px; margin:14px auto;">
             <input type="text" inputmode="numeric" maxlength="6" id="ordersPinInput" placeholder="••••••">
           </div>
@@ -1129,8 +1104,10 @@
       </div>`;
           return;
         }
-        const exitLink = getOwnerObserverMode()
-          ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
+        const exitLink = isAdminDevice
+          ? getOwnerObserverMode()
+            ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
+            : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Always open orders here</button>`
           : "";
         panel.innerHTML = `
     <div class="panel-header">
@@ -1139,10 +1116,27 @@
     </div>
     ${exitLink}
     <div class="panel-scroll" id="ordersScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      <div class="admin-section-card" id="serviceRequestsCard" style="display:none;">
+        <div class="section-heading" style="margin-bottom:10px;">🔔 Calling for a waiter</div>
+        <div id="serviceRequestsList"></div>
+      </div>
+      <div class="admin-section-card">
+        <div class="section-heading" style="margin-bottom:10px;">Take an order</div>
+        <div class="table-grid">${staffTableGridHtml()}</div>
+        <div class="table-gate-other">
+          <input type="text" id="ordersOtherTableInput" placeholder="Други...">
+          <button class="btn btn-primary" type="button" onclick="startTakingOrderOther()">Go</button>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div id="ordersListWrap">
+        <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      </div>
     </div>`;
         subscribeStaffOrders();
+        subscribeServiceRequests();
         refreshOrdersDashboard();
+        refreshServiceRequests();
       }
 
       function pinErrorMessage(e, fallback) {
@@ -1156,19 +1150,31 @@
         return fallback;
       }
 
+      // Accepts either the owner PIN or a waiter PIN. check_staff_pin is a
+      // new RPC (see the SQL migration) that returns 'owner', 'waiter', or
+      // null — it never touches the existing owner-only check_pin/change_pin
+      // used by the menu editor, so that stays owner-exclusive automatically.
       async function tryUnlockOrders() {
         const input = document.getElementById("ordersPinInput");
         const val = input ? input.value.trim() : "";
         try {
-          const { data, error } = await supabaseClient.rpc("check_pin", {
-            p_slug: MENU_SLUG,
-            p_pin: val,
-          });
+          const { data, error } = await supabaseClient.rpc(
+            "check_staff_pin",
+            { p_slug: MENU_SLUG, p_pin: val },
+          );
           if (error) throw error;
-          if (data === true) {
-            sessionPin = val;
-            unlocked = true;
+          if (data === "owner" || data === "waiter") {
+            sessionPinOrders = val;
+            staffRole = data;
+            unlockedOrders = true;
+            try {
+              sessionStorage.setItem(
+                ORDERS_SESSION_KEY,
+                JSON.stringify({ pin: val, role: data }),
+              );
+            } catch (e) {}
             renderOrders();
+            refreshOrdersBadge();
           } else {
             showToast("Incorrect PIN");
           }
@@ -1180,14 +1186,14 @@
       async function refreshOrdersDashboard() {
         try {
           const { data, error } = await supabaseClient.rpc(
-            "get_active_orders",
-            { p_slug: MENU_SLUG, p_pin: sessionPin },
+            "get_active_orders_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
           );
           if (error) throw error;
           renderOrdersList(data || []);
         } catch (e) {
           console.error("Could not load orders:", e);
-          const scroll = document.getElementById("ordersScroll");
+          const scroll = document.getElementById("ordersListWrap");
           if (scroll)
             scroll.innerHTML =
               '<p class="empty-state" style="padding:20px 0;">Could not load orders.</p>';
@@ -1195,7 +1201,7 @@
       }
 
       function renderOrdersList(rows) {
-        const scroll = document.getElementById("ordersScroll");
+        const scroll = document.getElementById("ordersListWrap");
         if (!scroll) return;
         if (!rows.length) {
           scroll.innerHTML =
@@ -1220,11 +1226,17 @@
               (i) => i.status === "pending",
             ).length;
             const groups = groupOrdersByOrderId(items);
+            const currency = (state.business && state.business.currency) || "$";
+            const billTotal = items.reduce(
+              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
+              0,
+            );
             return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
-        <span>Table ${escapeHtml(t)}</span>
-        <div style="display:flex; align-items:center; gap:8px;">
+      <div class="section-heading" style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center;">
+        <span style="flex-shrink:0;">Table ${escapeHtml(t)}</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           ${pendingCount ? `<span class="tab-badge">${pendingCount} pending</span>` : ""}
+          <button class="btn btn-sm add-more-btn" type="button" data-table="${escapeHtml(t)}">Add items</button>
           <button class="btn btn-sm btn-danger clear-table-btn" type="button" data-table="${escapeHtml(t)}">Clear table</button>
         </div>
       </div>
@@ -1246,11 +1258,18 @@
         </div>`,
         )
         .join("")}
+      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
+        <span>Bill</span>
+        <span>${currency}${billTotal.toFixed(2)}</span>
+      </div>
     </div>`;
           })
           .join("");
         scroll.querySelectorAll(".clear-table-btn").forEach((btn) => {
           btn.onclick = () => clearTableOrders(btn.dataset.table);
+        });
+        scroll.querySelectorAll(".add-more-btn").forEach((btn) => {
+          btn.onclick = () => startTakingOrder(btn.dataset.table);
         });
       }
 
@@ -1261,10 +1280,10 @@
         if (!ok) return;
         try {
           const { data, error } = await supabaseClient.rpc(
-            "clear_table_orders",
+            "clear_table_orders_staff",
             {
               p_slug: MENU_SLUG,
-              p_pin: sessionPin,
+              p_pin: sessionPinOrders,
               p_table: tableNumber,
             },
           );
@@ -1280,10 +1299,10 @@
         const newStatus = currentStatus === "done" ? "pending" : "done";
         try {
           const { data, error } = await supabaseClient.rpc(
-            "set_item_status",
+            "set_item_status_staff",
             {
               p_slug: MENU_SLUG,
-              p_pin: sessionPin,
+              p_pin: sessionPinOrders,
               p_item_id: itemId,
               p_status: newStatus,
             },
@@ -1295,48 +1314,100 @@
         }
       }
 
-      function subscribeStaffOrders() {
-        if (staffOrdersChannel) return;
-        staffOrdersChannel = supabaseClient
-          .channel("orders-" + MENU_SLUG)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "order_items",
-              filter: "slug=eq." + MENU_SLUG,
-            },
-            () => {
-              refreshOrdersDashboard();
-              refreshOrdersBadge();
-            },
+      /* ---- call-waiter requests (staff side) ---- */
+
+      async function refreshServiceRequests() {
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_open_service_requests_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error) throw error;
+          renderServiceRequests(data || []);
+        } catch (e) {
+          console.error("Could not load service requests:", e);
+        }
+      }
+
+      function renderServiceRequests(rows) {
+        const card = document.getElementById("serviceRequestsCard");
+        const list = document.getElementById("serviceRequestsList");
+        if (!card || !list) return;
+        if (!rows.length) {
+          card.style.display = "none";
+          list.innerHTML = "";
+          return;
+        }
+        card.style.display = "";
+        list.innerHTML = rows
+          .map(
+            (r) => `
+      <div class="order-item-row">
+        <span>Table ${escapeHtml(r.table_number)}${r.message ? " — " + escapeHtml(r.message) : ""}</span>
+        <button class="btn btn-sm btn-primary" data-req="${r.id}">Got it</button>
+      </div>`,
           )
-          .subscribe();
+          .join("");
+        list.querySelectorAll("[data-req]").forEach((btn) => {
+          btn.onclick = () => resolveServiceRequest(btn.dataset.req);
+        });
+      }
+
+      async function resolveServiceRequest(id) {
+        // Optimistically remove the row right away — waiting on the next
+        // poll (up to 4s, longer if the tab is backgrounded) made this
+        // feel broken, as if "Got it" only worked after a page refresh.
+        const btn = document.querySelector(`[data-req="${id}"]`);
+        const row = btn ? btn.closest(".order-item-row") : null;
+        if (btn) btn.disabled = true;
+        try {
+          const { error } = await supabaseClient.rpc(
+            "resolve_service_request_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders, p_id: id },
+          );
+          if (error) throw error;
+          if (row) row.remove();
+          const list = document.getElementById("serviceRequestsList");
+          const card = document.getElementById("serviceRequestsCard");
+          if (list && card && !list.children.length) {
+            card.style.display = "none";
+          }
+          refreshOrdersBadge();
+        } catch (e) {
+          if (btn) btn.disabled = false;
+          showToast("Could not clear that notification");
+        }
+      }
+
+      function subscribeServiceRequests() {
+        if (serviceRequestsPollTimer) return;
+        serviceRequestsPollTimer = setInterval(refreshServiceRequests, 4000);
+      }
+      function unsubscribeServiceRequests() {
+        if (serviceRequestsPollTimer) {
+          clearInterval(serviceRequestsPollTimer);
+          serviceRequestsPollTimer = null;
+        }
+      }
+
+      function subscribeStaffOrders() {
+        if (staffOrdersPollTimer) return;
+        staffOrdersPollTimer = setInterval(() => {
+          refreshOrdersDashboard();
+          refreshOrdersBadge();
+        }, 4000);
       }
       function unsubscribeStaffOrders() {
-        if (staffOrdersChannel) {
-          supabaseClient.removeChannel(staffOrdersChannel);
-          staffOrdersChannel = null;
+        if (staffOrdersPollTimer) {
+          clearInterval(staffOrdersPollTimer);
+          staffOrdersPollTimer = null;
         }
       }
 
       function initOrdersBadge() {
         refreshOrdersBadge();
-        if (badgeChannel) return;
-        badgeChannel = supabaseClient
-          .channel("orders-badge-" + MENU_SLUG)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "order_items",
-              filter: "slug=eq." + MENU_SLUG,
-            },
-            refreshOrdersBadge,
-          )
-          .subscribe();
+        if (badgePollTimer) return;
+        badgePollTimer = setInterval(refreshOrdersBadge, 15000);
       }
       async function refreshOrdersBadge() {
         try {
@@ -1345,8 +1416,24 @@
             { p_slug: MENU_SLUG },
           );
           if (error) throw error;
+          let n = Number(data) || 0;
+          // Service-request counts need the staff PIN, which we only have
+          // once the person has unlocked Live Orders at least once this
+          // session — until then the badge just reflects pending kitchen
+          // items, same as before.
+          if (sessionPinOrders) {
+            try {
+              const { data: reqData, error: reqError } =
+                await supabaseClient.rpc("get_open_service_requests_staff", {
+                  p_slug: MENU_SLUG,
+                  p_pin: sessionPinOrders,
+                });
+              if (!reqError && Array.isArray(reqData)) {
+                n += reqData.length;
+              }
+            } catch (e) {}
+          }
           const badge = document.getElementById("ordersBadge");
-          const n = Number(data) || 0;
           if (badge) {
             if (n > 0) {
               badge.textContent = n;
@@ -1358,9 +1445,12 @@
         } catch (e) {}
       }
 
-      let unlocked = false;
+      let unlockedAdmin = false; // gates the menu editor — owner PIN only
+      let sessionPinAdmin = null;
+      let unlockedOrders = false; // gates Live orders — owner or waiter PIN
+      let sessionPinOrders = null;
+      let staffRole = null; // 'owner' | 'waiter', set once Live orders is unlocked
       let qrObj = null;
-      let sessionPin = null;
 
       function fileToOptimizedBlob(file, maxDim = 700, quality = 0.75) {
         const hasAlpha =
@@ -1618,7 +1708,7 @@
           const { data, error } = await Promise.race([
             supabaseClient.rpc("save_menu", {
               p_slug: MENU_SLUG,
-              p_pin: sessionPin,
+              p_pin: sessionPinAdmin,
               p_data: state,
             }),
             timeout,
@@ -1782,7 +1872,7 @@
   ${percentLabel}
 </div>`;
               const cartCtrl =
-                it.available === false
+                it.available === false || !staffOrderMode
                   ? ""
                   : `<div class="item-cart-ctrl" data-cart-item="${it.id}">${cartCtrlHtml(it.id)}</div>`;
               html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
@@ -1916,7 +2006,7 @@
         const ctrl = document.getElementById("lightboxCartCtrl");
         if (ctrl) {
           const item = itemId ? findMenuItem(itemId) : null;
-          if (item && item.available !== false) {
+          if (item && item.available !== false && staffOrderMode) {
             ctrl.dataset.cartItem = itemId;
             ctrl.innerHTML = cartCtrlHtml(itemId);
             ctrl.classList.remove("hidden");
@@ -1992,7 +2082,7 @@
         if (document.activeElement && panel.contains(document.activeElement)) {
           document.activeElement.blur();
         }
-        if (!unlocked) {
+        if (!unlockedAdmin) {
           panel.innerHTML = `
       <div class="panel-header">
         <h2>Owner access</h2>
@@ -2063,7 +2153,15 @@
         <div class="field"><label>Currency symbol</label><input type="text" id="fCurrency" value="${escapeHtml(state.business.currency)}"></div>
         <div class="field"><label>Owner PIN</label><input type="text" inputmode="numeric" maxlength="6" id="fPin" value="${escapeHtml(state.pin)}"></div>
       </div>
+      <button class="btn btn-block" onclick="updatePin()">Update owner PIN</button>
+      <div class="divider"></div>
       <div class="field">
+        <label>Waiter PIN</label>
+        <input type="text" inputmode="numeric" maxlength="6" id="fWaiterPin" placeholder="Set a PIN for your waiters">
+      </div>
+      <p style="color:var(--muted); font-size:12.5px; margin:-4px 0 10px;">Waiters use this PIN to open Live orders and take orders for a table. It can't open this menu editor.</p>
+      <button class="btn btn-block" onclick="updateWaiterPin()">Update waiter PIN</button>
+      <div class="field" style="margin-top:14px;">
         <label>Number of tables</label>
         <input type="number" min="1" max="200" id="fTableCount" value="${state.business.tableCount || 12}">
       </div>
@@ -2071,7 +2169,6 @@
         <label>Accent theme</label>
         <div class="theme-row" id="themeRow"></div>
       </div>
-      <button class="btn btn-block" onclick="updatePin()">Update PIN</button>
     </div>
 
     <div class="admin-section-card">
@@ -2250,8 +2347,11 @@
           });
           if (error) throw error;
           if (data === true) {
-            sessionPin = val;
-            unlocked = true;
+            sessionPinAdmin = val;
+            unlockedAdmin = true;
+            try {
+              sessionStorage.setItem(ADMIN_SESSION_KEY, val);
+            } catch (e) {}
             renderAdmin();
           } else {
             showToast("Incorrect PIN");
@@ -2262,8 +2362,11 @@
       }
 
       function lockAdmin() {
-        unlocked = false;
-        sessionPin = null;
+        unlockedAdmin = false;
+        sessionPinAdmin = null;
+        try {
+          sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        } catch (e) {}
         renderAdmin();
       }
 
@@ -2273,20 +2376,43 @@
           showToast("Enter a new PIN first");
           return;
         }
-        if (newPin === sessionPin) {
+        if (newPin === sessionPinAdmin) {
           showToast("That's already the current PIN");
           return;
         }
         const { data, error } = await supabaseClient.rpc("change_pin", {
           p_slug: MENU_SLUG,
-          p_old_pin: sessionPin,
+          p_old_pin: sessionPinAdmin,
           p_new_pin: newPin,
         });
         if (!error && data === true) {
-          sessionPin = newPin;
+          sessionPinAdmin = newPin;
+          try {
+            sessionStorage.setItem(ADMIN_SESSION_KEY, newPin);
+          } catch (e) {}
           showToast("PIN updated");
         } else {
           showToast(pinErrorMessage(error, "Could not update PIN"));
+        }
+      }
+
+      async function updateWaiterPin() {
+        const input = document.getElementById("fWaiterPin");
+        const newPin = input ? input.value.trim() : "";
+        if (!newPin) {
+          showToast("Enter a waiter PIN first");
+          return;
+        }
+        const { data, error } = await supabaseClient.rpc("change_waiter_pin", {
+          p_slug: MENU_SLUG,
+          p_owner_pin: sessionPinAdmin,
+          p_new_waiter_pin: newPin,
+        });
+        if (!error && data === true) {
+          if (input) input.value = "";
+          showToast("Waiter PIN updated");
+        } else {
+          showToast(pinErrorMessage(error, "Could not update waiter PIN"));
         }
       }
 
@@ -2930,6 +3056,45 @@
         renderAdmin();
       }
 
+      function restoreStaffSessions() {
+        try {
+          const pin = sessionStorage.getItem(ADMIN_SESSION_KEY);
+          if (pin) {
+            sessionPinAdmin = pin;
+            unlockedAdmin = true;
+          }
+        } catch (e) {}
+        try {
+          const raw = sessionStorage.getItem(ORDERS_SESSION_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.pin) {
+              sessionPinOrders = parsed.pin;
+              staffRole = parsed.role || null;
+              unlockedOrders = true;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Browsers throttle or fully suspend setInterval timers while a tab
+      // is backgrounded, minimized, or the screen is locked — common on a
+      // staff tablet left sitting idle. That made new "calling a waiter"
+      // requests (and ones just cleared with "Got it") only show up again
+      // once something forced a fresh fetch, i.e. a full page reload.
+      // Force that same fresh fetch the moment the tab/window is active
+      // again, instead of waiting on the next (possibly stalled) tick.
+      function resyncLiveOrdersNow() {
+        if (serviceRequestsPollTimer) refreshServiceRequests();
+        if (staffOrdersPollTimer) refreshOrdersDashboard();
+        if (isAdminDevice) refreshOrdersBadge();
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") resyncLiveOrdersNow();
+      });
+      window.addEventListener("focus", resyncLiveOrdersNow);
+
+      restoreStaffSessions();
       initAdminVisibility();
       window.addEventListener("hashchange", initAdminVisibility);
       initFooterRecoveryTap();

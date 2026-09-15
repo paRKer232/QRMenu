@@ -392,8 +392,8 @@ body::before {
 }
 .tab-arrow {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: 1px solid var(--hairline-strong);
   background: var(--card);
@@ -561,8 +561,8 @@ body::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   border: 1px solid var(--hairline-strong);
   background: var(--bg-2);
@@ -815,12 +815,19 @@ body::before {
   color: var(--ink);
 }
 .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   font-size: 20px;
   cursor: pointer;
   color: var(--muted);
-  padding: 4px 8px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -10px -10px -10px 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 .publish-bar {
   position: sticky;
@@ -895,8 +902,8 @@ textarea {
   flex-wrap: wrap;
 }
 .theme-dot {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid transparent;
@@ -1003,9 +1010,9 @@ textarea {
   width: 100%;
 }
 .btn-sm {
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 12.5px;
-  min-height: 38px;
+  min-height: 42px;
 }
 .row {
   display: flex;
@@ -1133,8 +1140,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
   border-radius: 8px;
@@ -1152,8 +1159,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
   border-radius: 8px;
@@ -1185,8 +1192,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
   border-radius: 8px;
@@ -1201,42 +1208,18 @@ textarea {
 .admin-item-card.collapsed .item-card-toggle svg {
   transform: rotate(-90deg);
 }
-/* ---------- TABLE GATE ---------- */
-.table-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background:
-    radial-gradient(
-      ellipse 520px 260px at 50% 0%,
-      var(--accent-soft),
-      transparent 80%
-    ),
-    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
+/* ---------- TABLE PICKER (inside the "Your order" panel) ---------- */
+.cart-table-picker {
+  margin-bottom: 4px;
 }
-.table-gate.hidden {
-  display: none;
-}
-.table-gate-card {
-  width: 100%;
-  max-width: 420px;
-  text-align: center;
-}
-.table-gate-card h2 {
-  font-family: "Sora", sans-serif;
-  font-weight: 700;
-  font-size: 26px;
-  color: var(--ink);
-  margin: 0 0 8px;
-}
-.table-gate-sub {
+.cart-table-picker-label {
+  display: block;
   color: var(--muted);
-  font-size: 14.5px;
-  margin: 0 0 22px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
 }
 .table-grid {
   display: grid;
@@ -1315,26 +1298,6 @@ textarea {
 .table-gate-other input {
   flex: 1;
 }
-.table-gate-owner {
-  margin-top: 22px;
-}
-.table-gate-owner-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.table-gate-owner-divider::before,
-.table-gate-owner-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--hairline-strong);
-}
 .orders-exit-observer {
   display: block;
   width: 100%;
@@ -1404,6 +1367,14 @@ textarea {
 .cart-fab {
   bottom: calc(90px + env(safe-area-inset-bottom));
 }
+/* callWaiterFab and cartFab are mutually exclusive (the customer sees the
+   bell, staff-in-order-mode sees the cart) so they can safely share this
+   slot. Without this, callWaiterFab fell back to the base .fab position
+   and sat exactly on top of the owner-only gear icon (adminToggle) on the
+   owner's own device. */
+.callwaiter-fab {
+  bottom: calc(90px + env(safe-area-inset-bottom));
+}
 .fab-orders {
   left: calc(20px + env(safe-area-inset-left));
   right: auto;
@@ -1444,12 +1415,12 @@ textarea {
 .qty-stepper {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 1px;
   flex-shrink: 0;
 }
 .qty-stepper button {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
   border: 1px solid var(--hairline-strong);
   background: var(--bg-2);
@@ -1470,7 +1441,8 @@ textarea {
   color: var(--ink);
 }
 .add-btn {
-  padding: 7px 14px;
+  padding: 9px 16px;
+  min-height: 36px;
   border-radius: 20px;
   border: 1px solid var(--accent);
   background: var(--accent-soft);
@@ -1563,6 +1535,8 @@ textarea {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tag-toggles {
@@ -1574,7 +1548,10 @@ textarea {
 .tag-chip {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  padding: 5px 10px;
+  padding: 8px 12px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 20px;
   border: 1px solid var(--hairline-strong);
   cursor: pointer;
@@ -1750,9 +1727,9 @@ textarea {
     gap: 4px;
   }
   .vote-btn {
-    width: 22px;
-    height: 22px;
-    font-size: 10px;
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
   }
   .vote-percent {
     font-size: 9.5px;
