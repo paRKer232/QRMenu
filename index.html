@@ -34,7 +34,7 @@
           src="images/pizza.png"
           alt="Logo"
         /> -->
-        <p class="eyebrow">Menu</p>
+        <p class="eyebrow" id="staffAccessTap">Menu</p>
         <img class="hero-logo" src="images/pizza.png" alt="Logo" />
         <h1 id="bizName">&nbsp;</h1>
         <p class="tagline" id="bizTagline">&nbsp;</p>
@@ -129,6 +129,18 @@
         <div class="panel" id="ordersPanel"></div>
       </div>
 
+      <div class="overlay hidden" id="trashOverlay">
+        <div class="panel" id="trashPanel"></div>
+      </div>
+
+      <div class="overlay hidden" id="activityOverlay">
+        <div class="panel" id="activityPanel"></div>
+      </div>
+
+      <div class="overlay hidden" id="finishedOverlay">
+        <div class="panel" id="finishedPanel"></div>
+      </div>
+
       <div class="overlay hidden" id="callOverlay">
         <div class="panel" id="callPanel"></div>
       </div>
@@ -187,12 +199,18 @@
 
       const ADMIN_HASH = "owner";
       const ADMIN_DEVICE_KEY = "menuAdminDevice_" + MENU_SLUG;
+      // Separate trigger for waiters: grants the Live Orders (📋) button
+      // only — never the ⚙ menu-editor button, which stays owner-exclusive.
+      // e.g. mysite.com/qrmenu?staff=1
+      const STAFF_HASH = "staff";
+      const STAFF_DEVICE_KEY = "menuStaffDevice_" + MENU_SLUG;
       // Session-scoped (survives a page refresh, cleared when the tab closes)
       // so staff/owner don't have to re-enter their PIN on every reload.
       const ADMIN_SESSION_KEY = "menuAdminSession_" + MENU_SLUG;
       const ORDERS_SESSION_KEY = "menuOrdersSession_" + MENU_SLUG;
 
       let isAdminDevice = false;
+      let isStaffDevice = false;
 
       function initAdminVisibility() {
         // Primary trigger: query param, e.g. mysite.com/qrmenu?owner=1
@@ -208,6 +226,8 @@
         }
         const queryTriggered = !!params && params.get(ADMIN_HASH) !== null;
         const hashTriggered = window.location.hash === "#" + ADMIN_HASH;
+        const staffQueryTriggered = !!params && params.get(STAFF_HASH) !== null;
+        const staffHashTriggered = window.location.hash === "#" + STAFF_HASH;
 
         if (queryTriggered || hashTriggered) {
           try {
@@ -230,15 +250,40 @@
             );
           }
         }
+        if (staffQueryTriggered || staffHashTriggered) {
+          try {
+            localStorage.setItem(STAFF_DEVICE_KEY, "1");
+          } catch (e) {}
+          if (staffQueryTriggered && params) {
+            params.delete(STAFF_HASH);
+            const qs = params.toString();
+            history.replaceState(
+              null,
+              "",
+              window.location.pathname + (qs ? "?" + qs : ""),
+            );
+          } else {
+            history.replaceState(
+              null,
+              "",
+              window.location.pathname + window.location.search,
+            );
+          }
+        }
         isAdminDevice = false;
         try {
           isAdminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
         } catch (e) {}
+        isStaffDevice = false;
+        try {
+          isStaffDevice = localStorage.getItem(STAFF_DEVICE_KEY) === "1";
+        } catch (e) {}
         const fab = document.getElementById("adminToggle");
         if (fab) fab.classList.toggle("hidden", !isAdminDevice);
         const ordersFab = document.getElementById("ordersToggle");
-        if (ordersFab) ordersFab.classList.toggle("hidden", !isAdminDevice);
-        if (isAdminDevice) initOrdersBadge();
+        if (ordersFab)
+          ordersFab.classList.toggle("hidden", !(isAdminDevice || isStaffDevice));
+        if (isAdminDevice || isStaffDevice) initOrdersBadge();
       }
 
       // Fallback recovery gesture for mobile: tap the footer copyright text
@@ -263,6 +308,33 @@
             } catch (e) {}
             initAdminVisibility();
             showToast("Admin access restored on this device");
+          }
+        });
+      }
+
+      // Same idea, for waiters: tap the "Menu" eyebrow label at the top
+      // 5 times within 2 seconds to re-grant the Live Orders button on
+      // this device. A different element from the footer gesture above so
+      // the two never trigger each other by accident.
+      function initStaffRecoveryTap() {
+        const el = document.getElementById("staffAccessTap");
+        if (!el) return;
+        let tapCount = 0;
+        let tapTimer = null;
+        el.addEventListener("click", () => {
+          tapCount++;
+          if (tapTimer) clearTimeout(tapTimer);
+          tapTimer = setTimeout(() => {
+            tapCount = 0;
+          }, 2000);
+          if (tapCount >= 5) {
+            tapCount = 0;
+            if (tapTimer) clearTimeout(tapTimer);
+            try {
+              localStorage.setItem(STAFF_DEVICE_KEY, "1");
+            } catch (e) {}
+            initAdminVisibility();
+            showToast("Waiter access restored on this device");
           }
         });
       }
@@ -627,6 +699,21 @@
           .addEventListener("click", (e) => {
             if (e.target.id === "callOverlay") closeCallWaiter();
           });
+        document
+          .getElementById("trashOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "trashOverlay") closeTrash();
+          });
+        document
+          .getElementById("activityOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "activityOverlay") closeActivity();
+          });
+        document
+          .getElementById("finishedOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "finishedOverlay") closeFinished();
+          });
       }
 
       /* ---- call waiter (customer-facing) ---- */
@@ -897,6 +984,138 @@
         }
       }
 
+      /* ---- editing an order after it's already been sent ---- */
+      // An order goes to the kitchen the moment "Поръчай" is pressed — no
+      // more waiting. To fix a mistake after that, a waiter presses "Edit"
+      // on that specific order, which opens it for correction and starts a
+      // 15-minute window (only from that point, not from when it was sent).
+      // Once the window closes — or the waiter taps "Done" — it locks again
+      // until Edit is pressed again.
+      const ORDER_EDIT_MINUTES = 15;
+      let editingOrders = {}; // order_id -> edit-window deadline (ms epoch)
+      let editingTimers = {}; // order_id -> setTimeout id that auto-closes editing
+      let editCountdownInterval = null; // ticks the "closes in mm:ss" text
+
+      function formatCountdown(ms) {
+        const totalSec = Math.max(0, Math.ceil(ms / 1000));
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return m + ":" + String(s).padStart(2, "0");
+      }
+      function startEditingOrder(orderId) {
+        editingOrders[orderId] = Date.now() + ORDER_EDIT_MINUTES * 60 * 1000;
+        if (editingTimers[orderId]) clearTimeout(editingTimers[orderId]);
+        editingTimers[orderId] = setTimeout(
+          () => stopEditingOrder(orderId),
+          ORDER_EDIT_MINUTES * 60 * 1000,
+        );
+        rerenderOrderViews();
+        startEditCountdownTicker();
+      }
+      function stopEditingOrder(orderId) {
+        delete editingOrders[orderId];
+        if (editingTimers[orderId]) {
+          clearTimeout(editingTimers[orderId]);
+          delete editingTimers[orderId];
+        }
+        rerenderOrderViews();
+      }
+      function rerenderOrderViews() {
+        const cartOverlay = document.getElementById("cartOverlay");
+        if (cartOverlay && !cartOverlay.classList.contains("hidden")) {
+          renderCartPanel();
+        }
+        const ordersOverlay = document.getElementById("ordersOverlay");
+        if (ordersOverlay && !ordersOverlay.classList.contains("hidden")) {
+          refreshOrdersDashboard();
+        }
+      }
+      function startEditCountdownTicker() {
+        stopEditCountdownTicker();
+        editCountdownInterval = setInterval(() => {
+          let any = false;
+          document.querySelectorAll("[data-order-countdown]").forEach((el) => {
+            const deadline = editingOrders[el.dataset.orderCountdown];
+            if (deadline) {
+              any = true;
+              el.textContent = formatCountdown(deadline - Date.now());
+            }
+          });
+          if (!any) stopEditCountdownTicker();
+        }, 1000);
+      }
+      function stopEditCountdownTicker() {
+        if (editCountdownInterval) {
+          clearInterval(editCountdownInterval);
+          editCountdownInterval = null;
+        }
+      }
+      // Adjusts the quantity of an item that's already been sent to the
+      // kitchen (only reachable while its order is in edit mode). Setting
+      // qty to 0 removes the item. Requires a `set_order_item_qty_staff`
+      // RPC on the backend — see the accompanying SQL note.
+      async function adjustSentItemQty(itemId, currentQty, delta, view) {
+        const newQty = currentQty + delta;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "set_order_item_qty_staff",
+            {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPinOrders,
+              p_item_id: itemId,
+              p_qty: newQty,
+            },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+        } catch (e) {
+          console.error("Could not update sent item:", e);
+          showToast("Could not update that item");
+          return;
+        }
+        if (view === "cart") {
+          await loadMyOrders();
+          renderCartPanel();
+        } else {
+          refreshOrdersDashboard();
+        }
+      }
+      // Shared markup for one already-sent order's items, with an Edit /
+      // Done toggle and (while editing) per-item qty steppers in place of
+      // the normal status badge or "Mark done" control.
+      function sentOrderCardHtml(g, view, statusControl) {
+        const anyPending = g.items.some((it) => it.status !== "done");
+        const editing = !!editingOrders[g.order_id];
+        const editBtn = anyPending
+          ? editing
+            ? `<button class="btn btn-sm" type="button" onclick="stopEditingOrder('${g.order_id}')">Done</button>`
+            : `<button class="btn btn-sm" type="button" onclick="startEditingOrder('${g.order_id}')">Edit</button>`
+          : "";
+        const countdown = editing
+          ? ` · closes in <span data-order-countdown="${g.order_id}">${formatCountdown(editingOrders[g.order_id] - Date.now())}</span>`
+          : "";
+        const itemsHtml = g.items
+          .map((it) => {
+            if (editing && it.status !== "done") {
+              return `
+        <div class="order-item-row">
+          <span>${escapeHtml(it.item_name)}</span>
+          <div class="qty-stepper">
+            <button type="button" aria-label="Remove one" onclick="adjustSentItemQty('${it.id}', ${it.qty}, -1, '${view}')">−</button>
+            <span>${it.qty}</span>
+            <button type="button" aria-label="Add one" onclick="adjustSentItemQty('${it.id}', ${it.qty}, 1, '${view}')">+</button>
+          </div>
+        </div>`;
+            }
+            return `
+        <div class="order-item-row ${it.status === "done" ? "done" : ""}">
+          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          ${statusControl(it)}
+        </div>`;
+          })
+          .join("");
+        return { editBtn, countdown, itemsHtml };
+      }
+
       function groupOrdersByOrderId(rows) {
         const map = new Map();
         rows.forEach((r) => {
@@ -973,22 +1192,23 @@
           sentHtml =
             `<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Sent to the kitchen</div>` +
             groupOrdersByOrderId(myOrders)
-              .map(
-                (g) => `
+              .map((g) => {
+                const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
+                  g,
+                  "cart",
+                  (it) =>
+                    `<span class="status-badge ${it.status}">${it.status === "done" ? "Ready" : "Preparing"}</span>`,
+                );
+                return `
       <div class="order-card">
-        <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-        ${g.items
-          .map(
-            (it) => `
-        <div class="order-item-row">
-          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
-          <span class="status-badge ${it.status}">${it.status === "done" ? "Ready" : "Preparing"}</span>
-        </div>`,
-          )
-          .join("")}
+        <div class="order-card-head order-card-head-row">
+          <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${countdown}</span>
+          ${editBtn}
+        </div>
+        ${itemsHtml}
         ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
-      </div>`,
-              )
+      </div>`;
+              })
               .join("");
         }
 
@@ -1010,6 +1230,7 @@
             activeCart().note = noteInput.value;
           };
         }
+        if (Object.keys(editingOrders).length) startEditCountdownTicker();
       }
 
       async function placeOrder() {
@@ -1035,7 +1256,7 @@
           });
           if (error) throw error;
           delete cartsByTable[selectedTable];
-          updateCartFab();
+          refreshCartUI();
           showToast("Изпратено в кухнята!");
           await loadMyOrders();
           renderCartPanel();
@@ -1109,10 +1330,23 @@
             ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
             : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Always open orders here</button>`
           : "";
+        const activityBtn =
+          staffRole === "owner"
+            ? `<button class="icon-btn" type="button" onclick="openActivity()" title="Activity log" aria-label="Activity log">🕘</button>`
+            : "";
+        const finishedBtn =
+          staffRole === "owner"
+            ? `<button class="icon-btn" type="button" onclick="openFinished()" title="Finished tables (daily report)" aria-label="Finished tables">💰</button>`
+            : "";
         panel.innerHTML = `
     <div class="panel-header">
       <h2>Live orders</h2>
-      <button class="icon-btn" onclick="closeOrders()">✕</button>
+      <div style="display:flex; align-items:center; gap:6px;">
+        ${finishedBtn}
+        ${activityBtn}
+        <button class="icon-btn" type="button" onclick="openTrash()" title="Trash" aria-label="Trash">🗑</button>
+        <button class="icon-btn" onclick="closeOrders()">✕</button>
+      </div>
     </div>
     ${exitLink}
     <div class="panel-scroll" id="ordersScroll">
@@ -1237,21 +1471,138 @@
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           ${pendingCount ? `<span class="tab-badge">${pendingCount} pending</span>` : ""}
           <button class="btn btn-sm add-more-btn" type="button" data-table="${escapeHtml(t)}">Add items</button>
+          <button class="btn btn-sm btn-success finish-table-btn" type="button" data-table="${escapeHtml(t)}">Finish table</button>
           <button class="btn btn-sm btn-danger clear-table-btn" type="button" data-table="${escapeHtml(t)}">Clear table</button>
         </div>
       </div>
       ${groups
+        .map((g) => {
+          const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
+            g,
+            "dashboard",
+            (it) =>
+              `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
+          );
+          return `
+        <div class="order-card">
+          <div class="order-card-head order-card-head-row">
+            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${countdown}</span>
+            ${editBtn}
+          </div>
+          ${itemsHtml}
+          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+        </div>`;
+        })
+        .join("")}
+      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
+        <span>Bill</span>
+        <span>${currency}${billTotal.toFixed(2)}</span>
+      </div>
+    </div>`;
+          })
+          .join("");
+        scroll.querySelectorAll(".clear-table-btn").forEach((btn) => {
+          btn.onclick = () => clearTableOrders(btn.dataset.table);
+        });
+        scroll.querySelectorAll(".finish-table-btn").forEach((btn) => {
+          btn.onclick = () => finishTableOrders(btn.dataset.table);
+        });
+        scroll.querySelectorAll(".add-more-btn").forEach((btn) => {
+          btn.onclick = () => startTakingOrder(btn.dataset.table);
+        });
+        if (Object.keys(editingOrders).length) startEditCountdownTicker();
+      }
+
+      /* ---- trash (tables cleared via "Clear table") ---- */
+      // Clearing a table no longer deletes its rows outright — the backend
+      // archives them (see clear_table_orders_staff) so they land here.
+      // Nothing purges this automatically; a waiter or the owner has to
+      // press "Empty trash" on purpose.
+
+      function openTrash() {
+        document.getElementById("trashOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderTrash();
+      }
+      function closeTrash() {
+        document.getElementById("trashOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      async function renderTrash() {
+        const panel = document.getElementById("trashPanel");
+        if (!panel) return;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Trash</h2>
+      <button class="icon-btn" onclick="closeTrash()">✕</button>
+    </div>
+    <div class="panel-scroll" id="trashScroll">
+      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+    </div>`;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_trash_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error) throw error;
+          renderTrashList(data || []);
+        } catch (e) {
+          console.error("Could not load trash:", e);
+          const scroll = document.getElementById("trashScroll");
+          if (scroll)
+            scroll.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">Could not load trash.</p>';
+        }
+      }
+
+      function renderTrashList(rows) {
+        const scroll = document.getElementById("trashScroll");
+        if (!scroll) return;
+        if (!rows.length) {
+          scroll.innerHTML =
+            '<p class="empty-state" style="padding:20px 0;">Trash is empty.</p>';
+          return;
+        }
+        const byTable = new Map();
+        rows.forEach((r) => {
+          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
+          byTable.get(r.table_number).push(r);
+        });
+        const currency = (state.business && state.business.currency) || "$";
+        const tables = Array.from(byTable.keys()).sort((a, b) => {
+          const na = parseFloat(a),
+            nb = parseFloat(b);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return String(a).localeCompare(String(b));
+        });
+        const html = tables
+          .map((t) => {
+            const items = byTable.get(t);
+            const groups = groupOrdersByOrderId(items);
+            const billTotal = items.reduce(
+              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
+              0,
+            );
+            return `<div class="admin-section-card">
+      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      ${groups
         .map(
           (g) => `
         <div class="order-card">
-          <div class="order-card-head">${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+          <div class="order-card-head order-card-head-row">
+            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          </div>
           ${g.items
             .map(
               (it) => `
-          <div class="order-item-row ${it.status === "done" ? "done" : ""}">
-            <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
-            <button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}')">${it.status === "done" ? "Undo" : "Mark done"}</button>
-          </div>`,
+        <div class="order-item-row">
+          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+        </div>`,
             )
             .join("")}
           ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
@@ -1265,12 +1616,280 @@
     </div>`;
           })
           .join("");
-        scroll.querySelectorAll(".clear-table-btn").forEach((btn) => {
-          btn.onclick = () => clearTableOrders(btn.dataset.table);
+        scroll.innerHTML =
+          html +
+          `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyTrash()">Empty trash</button>`;
+      }
+
+      async function emptyTrash() {
+        const ok = confirm(
+          "Permanently delete everything in the trash? This can't be undone.",
+        );
+        if (!ok) return;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "empty_trash_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          showToast("Trash emptied");
+          renderTrash();
+        } catch (e) {
+          console.error("Could not empty trash:", e);
+          showToast("Could not empty trash");
+        }
+      }
+
+      /* ---- finished tables (daily report / cash) ---- */
+      // Same mechanics as the trash can: "Finish table" archives a table's
+      // items out of Live Orders, just into a separate `finished` bucket
+      // instead of `archived`, so the two never mix. Nothing purges this
+      // automatically — the owner clears it manually once the day's cash
+      // has been counted and recorded elsewhere.
+      function openFinished() {
+        document.getElementById("finishedOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderFinished();
+      }
+      function closeFinished() {
+        document.getElementById("finishedOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      async function renderFinished() {
+        const panel = document.getElementById("finishedPanel");
+        if (!panel) return;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Finished tables</h2>
+      <button class="icon-btn" onclick="closeFinished()">✕</button>
+    </div>
+    <div class="panel-scroll" id="finishedScroll">
+      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+    </div>`;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_finished_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error) throw error;
+          renderFinishedList(data || []);
+        } catch (e) {
+          console.error("Could not load finished tables:", e);
+          const scroll = document.getElementById("finishedScroll");
+          if (scroll)
+            scroll.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">Could not load finished tables.</p>';
+        }
+      }
+
+      function renderFinishedList(rows) {
+        const scroll = document.getElementById("finishedScroll");
+        if (!scroll) return;
+        if (!rows.length) {
+          scroll.innerHTML =
+            '<p class="empty-state" style="padding:20px 0;">No finished tables yet.</p>';
+          return;
+        }
+        const byTable = new Map();
+        rows.forEach((r) => {
+          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
+          byTable.get(r.table_number).push(r);
         });
-        scroll.querySelectorAll(".add-more-btn").forEach((btn) => {
-          btn.onclick = () => startTakingOrder(btn.dataset.table);
+        const currency = (state.business && state.business.currency) || "$";
+        const tables = Array.from(byTable.keys()).sort((a, b) => {
+          const na = parseFloat(a),
+            nb = parseFloat(b);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return String(a).localeCompare(String(b));
         });
+        const grandTotal = rows.reduce(
+          (s, r) => s + (parseFloat(r.price) || 0) * r.qty,
+          0,
+        );
+        const html = tables
+          .map((t) => {
+            const items = byTable.get(t);
+            const groups = groupOrdersByOrderId(items);
+            const billTotal = items.reduce(
+              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
+              0,
+            );
+            return `<div class="admin-section-card">
+      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      ${groups
+        .map(
+          (g) => `
+        <div class="order-card">
+          <div class="order-card-head order-card-head-row">
+            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          </div>
+          ${g.items
+            .map(
+              (it) => `
+        <div class="order-item-row">
+          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+        </div>`,
+            )
+            .join("")}
+          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+        </div>`,
+        )
+        .join("")}
+      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
+        <span>Bill</span>
+        <span>${currency}${billTotal.toFixed(2)}</span>
+      </div>
+    </div>`;
+          })
+          .join("");
+        scroll.innerHTML =
+          `<div class="admin-section-card" style="background:rgba(74,222,128,0.08); border-color:rgba(74,222,128,0.25);">
+      <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:16px;">
+        <span>Total (${tables.length} table${tables.length === 1 ? "" : "s"})</span>
+        <span>${currency}${grandTotal.toFixed(2)}</span>
+      </div>
+    </div>` +
+          html +
+          `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyFinished()">Clear report — start new day</button>`;
+      }
+
+      async function emptyFinished() {
+        const ok = confirm(
+          "Clear all finished tables? Do this only after you've recorded today's cash — it can't be undone.",
+        );
+        if (!ok) return;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "empty_finished_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          showToast("Report cleared");
+          renderFinished();
+        } catch (e) {
+          console.error("Could not clear finished tables:", e);
+          showToast("Could not clear finished tables");
+        }
+      }
+
+      /* ---- activity log (owner only) ---- */
+      // Shows every edit made to already-sent orders — quantity changes,
+      // status toggles, table clears, trash empties — with who (role) and
+      // when. Waiters can still do all of these actions; only the owner
+      // can see the history of them, enforced server-side too since
+      // get_edit_log_staff rejects anything but the owner PIN.
+      const EDIT_LOG_ACTION_LABELS = {
+        qty_change: "Qty changed",
+        status_change: "Status changed",
+        clear_table: "Table cleared",
+        empty_trash: "Trash emptied",
+        finish_table: "Table finished",
+        empty_finished: "Report cleared",
+      };
+
+      function openActivity() {
+        document.getElementById("activityOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderActivity();
+      }
+      function closeActivity() {
+        document.getElementById("activityOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      async function renderActivity() {
+        const panel = document.getElementById("activityPanel");
+        if (!panel) return;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Activity log</h2>
+      <button class="icon-btn" onclick="closeActivity()">✕</button>
+    </div>
+    <div class="panel-scroll" id="activityScroll">
+      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+    </div>`;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_edit_log_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error) throw error;
+          renderActivityList(data || []);
+        } catch (e) {
+          console.error("Could not load activity log:", e);
+          const scroll = document.getElementById("activityScroll");
+          if (scroll)
+            scroll.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">Could not load activity log.</p>';
+        }
+      }
+
+      function renderActivityList(rows) {
+        const scroll = document.getElementById("activityScroll");
+        if (!scroll) return;
+        if (!rows.length) {
+          scroll.innerHTML =
+            '<p class="empty-state" style="padding:20px 0;">No edits yet.</p>';
+          return;
+        }
+        scroll.innerHTML = rows
+          .map((r) => {
+            const label = EDIT_LOG_ACTION_LABELS[r.action] || r.action;
+            const who = r.role === "owner" ? "Owner" : "Waiter";
+            const when = new Date(r.created_at).toLocaleString([], {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            const target = [
+              r.table_number ? `Table ${escapeHtml(r.table_number)}` : "",
+              r.item_name ? escapeHtml(r.item_name) : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return `
+      <div class="order-item-row" style="align-items:flex-start; flex-direction:column; gap:2px;">
+        <div style="display:flex; justify-content:space-between; width:100%; gap:8px;">
+          <strong>${label}</strong>
+          <span style="color:var(--muted); font-size:12.5px; white-space:nowrap;">${when}</span>
+        </div>
+        <span style="color:var(--muted); font-size:13px;">${who}${target ? " · " + target : ""}${r.details ? " · " + escapeHtml(r.details) : ""}</span>
+      </div>`;
+          })
+          .join("");
+      }
+
+      async function finishTableOrders(tableNumber) {
+        const ok = confirm(
+          `Finish Table ${tableNumber}? This closes it out for today's report.`,
+        );
+        if (!ok) return;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "finish_table_orders_staff",
+            {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPinOrders,
+              p_table: tableNumber,
+            },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          showToast(`Table ${tableNumber} finished`);
+          refreshOrdersDashboard();
+        } catch (e) {
+          console.error("Could not finish table:", e);
+          showToast("Could not finish table");
+        }
       }
 
       async function clearTableOrders(tableNumber) {
@@ -1407,7 +2026,12 @@
       function initOrdersBadge() {
         refreshOrdersBadge();
         if (badgePollTimer) return;
-        badgePollTimer = setInterval(refreshOrdersBadge, 15000);
+        // Skip ticks while the tab is backgrounded — nothing is watching
+        // the badge then, and resyncLiveOrdersNow() already forces a fresh
+        // refresh the moment the tab becomes visible again.
+        badgePollTimer = setInterval(() => {
+          if (document.visibilityState === "visible") refreshOrdersBadge();
+        }, 15000);
       }
       async function refreshOrdersBadge() {
         try {
@@ -3087,7 +3711,7 @@
       function resyncLiveOrdersNow() {
         if (serviceRequestsPollTimer) refreshServiceRequests();
         if (staffOrdersPollTimer) refreshOrdersDashboard();
-        if (isAdminDevice) refreshOrdersBadge();
+        if (isAdminDevice || isStaffDevice) refreshOrdersBadge();
       }
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") resyncLiveOrdersNow();
@@ -3098,6 +3722,7 @@
       initAdminVisibility();
       window.addEventListener("hashchange", initAdminVisibility);
       initFooterRecoveryTap();
+      initStaffRecoveryTap();
       loadData();
     </script>
   </body>
