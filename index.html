@@ -747,11 +747,11 @@
         }
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Call waiter</h2>
+      <h2>Извикай сервитьор</h2>
       <button class="icon-btn" onclick="closeCallWaiter()">✕</button>
     </div>
     <div class="panel-scroll">
-      <p class="cart-table-picker-label" style="margin-bottom:10px;">Коя маса сте вие?</p>
+      <p class="cart-table-picker-label" style="margin-bottom:10px;">На коя маса сядате?</p>
       <div class="table-grid">${grid}</div>
       <div class="table-gate-other">
         <input type="text" id="callOtherTableInput" placeholder="Други..." value="${escapeHtml(callWaiterTable && !(parseInt(callWaiterTable, 10) >= 1 && parseInt(callWaiterTable, 10) <= count) ? callWaiterTable : "")}">
@@ -1788,8 +1788,8 @@
         status_change: "Променен статус",
         clear_table: "Изтрита маса",
         empty_trash: "Изпразнено кошче",
-        finish_table: "Table finished",
-        empty_finished: "Report cleared",
+        finish_table: "Готова маса",
+        empty_finished: "Отчет изчистен",
       };
 
       function openActivity() {
