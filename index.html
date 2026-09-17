@@ -2410,6 +2410,28 @@
         });
       }
 
+      // Deleting an item (or a whole section/subsection full of items)
+      // must also remove any images those items own in storage, or the
+      // menu-photos bucket accumulates orphaned files with nothing left
+      // pointing at them. Collects every non-empty imagePath found, then
+      // fires a single best-effort remove() — failures are swallowed since
+      // the menu edit itself should never be blocked by a storage hiccup.
+      function collectItemImagePaths(items) {
+        return (items || []).map((it) => it.imagePath).filter(Boolean);
+      }
+      function collectSubsectionImagePaths(subsections) {
+        return (subsections || []).flatMap((sub) =>
+          collectItemImagePaths(sub.items),
+        );
+      }
+      function deleteImagePaths(paths) {
+        if (!paths || !paths.length) return;
+        supabaseClient.storage
+          .from(MENU_BUCKET)
+          .remove(paths)
+          .catch((e) => console.error("Could not remove image(s):", e));
+      }
+
       async function uploadItemImage(file, oldPath) {
         const { blob, mime } = await fileToOptimizedBlob(file);
         const ext = mime === "image/png" ? "png" : "jpg";
@@ -3409,6 +3431,10 @@
         });
         wrap.querySelectorAll('[data-role="deleteSection"]').forEach((el) => {
           el.onclick = () => {
+            const sec = state.sections.find((s) => s.id === el.dataset.sid);
+            if (sec) {
+              deleteImagePaths(collectSubsectionImagePaths(sec.subsections));
+            }
             state.sections = state.sections.filter(
               (s) => s.id !== el.dataset.sid,
             );
@@ -3510,6 +3536,7 @@
             showToast("Keep at least one subsection in a category");
             return;
           }
+          deleteImagePaths(collectItemImagePaths(sub.items));
           sec.subsections = sec.subsections.filter((s) => s.id !== sub.id);
           markDirty();
           renderAdmin();
@@ -3995,7 +4022,10 @@
         };
         deleteBtn.onclick = () => {
           const sub = getSubsection(sectionId, subsectionId);
-          if (sub) sub.items = sub.items.filter((i) => i.id !== item.id);
+          if (sub) {
+            deleteImagePaths(collectItemImagePaths([findItem()]));
+            sub.items = sub.items.filter((i) => i.id !== item.id);
+          }
           markDirty();
           renderAdmin();
         };
