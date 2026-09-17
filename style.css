@@ -592,6 +592,120 @@ body::before {
   font-weight: 600;
   color: var(--muted);
 }
+
+.comments-block {
+  border-top: 1px solid var(--hairline);
+  margin-top: 8px;
+  padding-top: 6px;
+}
+.comments-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.comments-list {
+  margin-top: 4px;
+}
+.comment-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--hairline);
+}
+.comment-row:first-child {
+  border-top: none;
+}
+.comment-vote {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.comment-body {
+  min-width: 0;
+}
+.comment-text {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.comment-time {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.comments-empty {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+.comment-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.comment-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--bg-2);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: -2px 0 8px;
+}
+.manual-vote-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+.manual-vote-row:not(:last-child) {
+  border-bottom: 1px solid var(--hairline);
+}
+.manual-vote-label {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.admin-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-comment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+.admin-comment-row .comment-text {
+  flex: 1;
+  min-width: 0;
+}
+.admin-comment-row .comment-vote {
+  flex-shrink: 0;
+}
 .item-badges {
   display: inline-flex;
   gap: 5px;

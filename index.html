@@ -145,6 +145,10 @@
         <div class="panel" id="callPanel"></div>
       </div>
 
+      <div class="overlay hidden" id="commentsOverlay">
+        <div class="panel" id="commentsPanel"></div>
+      </div>
+
       <div class="toast hidden" id="toast"></div>
     </div>
     <footer class="footer">
@@ -514,6 +518,8 @@
       let activeSection = null;
       let activeSubsection = null;
       let voteCounts = {}; // item_id -> { likes, dislikes }, loaded from Supabase
+      let commentCounts = {}; // item_id -> count, loaded from Supabase
+      let commentsByItem = {}; // item_id -> array of {id, comment, vote, created_at}, lazy-loaded per item
       let expandedItems = new Set(); // item ids currently expanded in the admin panel
       let dragState = null; // { sectionId, itemId } of the item card currently being dragged
 
@@ -539,6 +545,102 @@
         } catch (e) {
           return null;
         }
+      }
+
+      // Remembers the like/dislike count this device saw right after it
+      // voted, so we can tell later whether that vote has since been
+      // wiped out on the server (e.g. the owner deleted rows in
+      // Supabase directly). Counts only ever grow from new votes, so a
+      // drop below this snapshot means something was deleted there.
+      function getVoteSnapshotKey(itemId) {
+        return "voteSnapshot:" + MENU_SLUG + ":" + itemId;
+      }
+      function getVoteSnapshot(itemId) {
+        try {
+          const raw = localStorage.getItem(getVoteSnapshotKey(itemId));
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      function setVoteSnapshot(itemId, vote, count) {
+        try {
+          localStorage.setItem(
+            getVoteSnapshotKey(itemId),
+            JSON.stringify({ vote, count }),
+          );
+        } catch (e) {}
+      }
+      function clearUserVote(itemId) {
+        try {
+          localStorage.removeItem("vote:" + MENU_SLUG + ":" + itemId);
+          localStorage.removeItem(getVoteSnapshotKey(itemId));
+        } catch (e) {}
+      }
+
+      // Un-highlights a like/dislike on this device once the server no
+      // longer shows the growth it caused — the self-healing counterpart
+      // to the owner deleting votes straight out of Supabase. Runs once
+      // per fresh load, right after vote counts come in.
+      function reconcileLocalVotes() {
+        (state.sections || []).forEach((sec) => {
+          (sec.subsections || []).forEach((sub) => {
+            (sub.items || []).forEach((it) => {
+              const vote = getUserVote(it.id);
+              if (!vote) return;
+              const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
+              const currentCount = vote === "like" ? vc.likes : vc.dislikes;
+              const snap = getVoteSnapshot(it.id);
+              if (!snap) {
+                // Vote was cast before this check existed — start
+                // tracking it from here instead of guessing.
+                setVoteSnapshot(it.id, vote, currentCount);
+                return;
+              }
+              if (currentCount < snap.count) {
+                clearUserVote(it.id);
+              } else if (currentCount > snap.count) {
+                setVoteSnapshot(it.id, vote, currentCount);
+              }
+            });
+          });
+        });
+      }
+
+      function hasUserCommented(itemId) {
+        try {
+          return (
+            localStorage.getItem("commented:" + MENU_SLUG + ":" + itemId) ===
+            "1"
+          );
+        } catch (e) {
+          return false;
+        }
+      }
+      function markUserCommented(itemId) {
+        try {
+          localStorage.setItem("commented:" + MENU_SLUG + ":" + itemId, "1");
+        } catch (e) {}
+      }
+
+      function formatRelativeTime(iso) {
+        const then = new Date(iso).getTime();
+        const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
+        if (diffSec < 60) return "just now";
+        const diffMin = Math.round(diffSec / 60);
+        if (diffMin < 60)
+          return diffMin + (diffMin === 1 ? " minute ago" : " minutes ago");
+        const diffHr = Math.round(diffMin / 60);
+        if (diffHr < 24)
+          return diffHr + (diffHr === 1 ? " hour ago" : " hours ago");
+        const diffDay = Math.round(diffHr / 24);
+        if (diffDay < 30)
+          return diffDay + (diffDay === 1 ? " day ago" : " days ago");
+        const diffMonth = Math.round(diffDay / 30);
+        if (diffMonth < 12)
+          return diffMonth + (diffMonth === 1 ? " month ago" : " months ago");
+        const diffYear = Math.round(diffMonth / 12);
+        return diffYear + (diffYear === 1 ? " year ago" : " years ago");
       }
 
       async function loadVoteCounts() {
@@ -581,6 +683,11 @@
           try {
             localStorage.setItem("vote:" + MENU_SLUG + ":" + itemId, vote);
           } catch (e) {}
+          setVoteSnapshot(
+            itemId,
+            vote,
+            vote === "like" ? voteCounts[itemId].likes : voteCounts[itemId].dislikes,
+          );
           renderMenu();
         } catch (e) {
           showToast("Couldn't save your vote, try again");
@@ -590,6 +697,187 @@
             .forEach((b) => (b.disabled = false));
         }
       }
+      /* ---- customer comments (like/dislike + a short written note) ---- */
+
+      async function loadCommentCounts() {
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_comment_counts",
+            { p_slug: MENU_SLUG },
+          );
+          if (error) throw error;
+          commentCounts = {};
+          (data || []).forEach((r) => {
+            commentCounts[r.item_id] = Number(r.count) || 0;
+          });
+        } catch (e) {
+          commentCounts = {};
+        }
+      }
+
+      async function loadComments(itemId) {
+        try {
+          const { data, error } = await supabaseClient.rpc("get_comments", {
+            p_slug: MENU_SLUG,
+            p_item_id: itemId,
+            p_limit: 50,
+          });
+          if (error) throw error;
+          commentsByItem[itemId] = data || [];
+        } catch (e) {
+          commentsByItem[itemId] = [];
+        }
+      }
+
+      let commentsOverlayItemId = null; // item currently shown in the comments overlay
+
+      function openCommentsPanel(itemId) {
+        commentsOverlayItemId = itemId;
+        document.getElementById("commentsOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderCommentsOverlay();
+        if (!commentsByItem[itemId]) {
+          loadComments(itemId).then(() => {
+            if (commentsOverlayItemId === itemId) renderCommentsOverlay();
+          });
+        }
+      }
+      function closeCommentsPanel() {
+        document.getElementById("commentsOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+        commentsOverlayItemId = null;
+      }
+
+      function renderCommentsOverlay() {
+        const panel = document.getElementById("commentsPanel");
+        if (!panel || !commentsOverlayItemId) return;
+        const itemId = commentsOverlayItemId;
+        const item = findMenuItem(itemId);
+        const list = commentsByItem[itemId];
+        const listHtml = !list
+          ? `<p class="comments-empty">Loading comments…</p>`
+          : list.length
+            ? `<div class="comments-list">${list
+                .map(
+                  (c) => `<div class="comment-row">
+          ${c.vote ? `<span class="comment-vote ${c.vote}">${c.vote === "like" ? "👍" : "👎"}</span>` : ""}
+          <div class="comment-body">
+            <p class="comment-text">${escapeHtml(c.comment)}</p>
+            <p class="comment-time">${formatRelativeTime(c.created_at)}</p>
+          </div>
+        </div>`,
+                )
+                .join("")}</div>`
+            : `<p class="comments-empty">Няма коментар</p>`;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>${escapeHtml((item && item.name) || "Comments")}</h2>
+      <button class="icon-btn" onclick="closeCommentsPanel()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      ${listHtml}
+      <div class="comment-form">
+        <input type="text" maxlength="280" class="comment-input" id="commentInput" placeholder="Напишете коментар…">
+        <button type="button" class="btn btn-sm" onclick="submitComment('${itemId}')">Публикувай</button>
+      </div>
+    </div>`;
+      }
+
+      async function submitComment(itemId) {
+        const input = document.getElementById("commentInput");
+        if (!input) return;
+        const text = input.value.trim();
+        if (!text) {
+          showToast("Напишете текст");
+          return;
+        }
+        if (text.length > 280) {
+          showToast("Keep it under 280 characters");
+          return;
+        }
+        input.disabled = true;
+        try {
+          const { error } = await supabaseClient.rpc("submit_comment", {
+            p_slug: MENU_SLUG,
+            p_item_id: itemId,
+            p_device_id: getDeviceId(),
+            p_comment: text,
+            p_vote: getUserVote(itemId),
+          });
+          if (error) throw error;
+          if (!hasUserCommented(itemId)) {
+            commentCounts[itemId] = (commentCounts[itemId] || 0) + 1;
+            markUserCommented(itemId);
+          }
+          await loadComments(itemId);
+          renderCommentsOverlay();
+          renderMenu();
+          showToast("Коментарът е публикуван успешно");
+        } catch (e) {
+          showToast(
+            (e && e.message) ||
+              "Коментарът не може да бъде публикуван, опитайте отново",
+          );
+          input.disabled = false;
+        }
+      }
+
+      /* ---- admin: viewing + deleting customer comments ---- */
+
+      function renderAdminCommentsList(container, itemId) {
+        const list = commentsByItem[itemId] || [];
+        container.innerHTML = list.length
+          ? list
+              .map(
+                (c) => `<div class="admin-comment-row" data-comment-id="${c.id}">
+        ${c.vote ? `<span class="comment-vote ${c.vote}">${c.vote === "like" ? "👍" : "👎"}</span>` : ""}
+        <p class="comment-text">${escapeHtml(c.comment)}</p>
+        <button type="button" class="btn btn-sm btn-danger admin-comment-delete" data-id="${c.id}">Delete</button>
+      </div>`,
+              )
+              .join("")
+          : `<p class="comments-empty">No comments yet.</p>`;
+        container.querySelectorAll(".admin-comment-delete").forEach((btn) => {
+          btn.onclick = () => deleteComment(itemId, btn.dataset.id, container);
+        });
+      }
+
+      async function loadAdminComments(itemId, container) {
+        container.innerHTML = `<p class="comments-empty">Loading…</p>`;
+        if (!commentsByItem[itemId]) await loadComments(itemId);
+        renderAdminCommentsList(container, itemId);
+      }
+
+      async function deleteComment(itemId, commentId, container) {
+        try {
+          const { error } = await supabaseClient.rpc("delete_comment", {
+            p_slug: MENU_SLUG,
+            p_pin: sessionPinAdmin,
+            p_comment_id: commentId,
+          });
+          if (error) throw error;
+          commentsByItem[itemId] = (commentsByItem[itemId] || []).filter(
+            (c) => c.id !== commentId,
+          );
+          if (commentCounts[itemId]) {
+            commentCounts[itemId] = Math.max(0, commentCounts[itemId] - 1);
+          }
+          renderAdminCommentsList(container, itemId);
+          showToast("Коментарът беше изтрит");
+        } catch (e) {
+          showToast(
+            pinErrorMessage(
+              e,
+              "Коментарът не може да бъде изтрит, опитайте отново",
+            ),
+          );
+        }
+      }
+
       /* ---------------- ORDERING SYSTEM (staff-only) ---------------- */
       // Customers no longer order for themselves — only a device unlocked
       // with a staff PIN (owner or waiter) can pick a table here and add
@@ -2267,6 +2555,8 @@
             ? firstSection.subsections[0].id
             : null;
         await loadVoteCounts();
+        reconcileLocalVotes();
+        await loadCommentCounts();
         render();
         document.getElementById("app").classList.add("ready");
         initOrdering();
@@ -2472,16 +2762,13 @@
                 ? `<button class="item-photo-thumb" type="button" aria-label="View photo" onclick="openPhoto('${escapeHtml(it.image)}', this, '${it.id}')"><img src="${escapeHtml(it.image)}" alt="" loading="lazy"></button>`
                 : "";
               const vc = voteCounts[it.id] || { likes: 0, dislikes: 0 };
-              const total = vc.likes + vc.dislikes;
-              const hasOverride =
-                it.likePercent !== undefined &&
-                it.likePercent !== null &&
-                it.likePercent !== "";
-              const percent = hasOverride
-                ? Math.max(0, Math.min(100, Math.round(Number(it.likePercent))))
-                : total > 0
-                  ? Math.round((vc.likes / total) * 100)
-                  : null;
+              const manualLikes = Math.max(0, Math.round(Number(it.manualLikes)) || 0);
+              const manualDislikes = Math.max(0, Math.round(Number(it.manualDislikes)) || 0);
+              const displayLikes = vc.likes + manualLikes;
+              const displayDislikes = vc.dislikes + manualDislikes;
+              const total = displayLikes + displayDislikes;
+              const percent =
+                total > 0 ? Math.round((displayLikes / total) * 100) : null;
               const userVote = getUserVote(it.id);
               const percentLabel =
                 percent === null
@@ -2499,9 +2786,22 @@
                 it.available === false || !staffOrderMode
                   ? ""
                   : `<div class="item-cart-ctrl" data-cart-item="${it.id}">${cartCtrlHtml(it.id)}</div>`;
+              const commentCount = commentCounts[it.id] || 0;
+              const commentsToggleLabel =
+                commentCount > 0
+                  ? commentCount + (commentCount === 1 ? " comment" : " comments")
+                  : "Напиши коментар";
+              const commentsHtml =
+                it.available === false
+                  ? ""
+                  : `<div class="comments-block">
+              <button type="button" class="comments-toggle" onclick="openCommentsPanel('${it.id}')">
+                <span>💬 ${commentsToggleLabel}</span>
+              </button>
+            </div>`;
               html += `<div class="item ${it.available === false ? "unavailable" : ""} ${it.image ? "" : "no-media"}">
               ${mediaHtml}<div class="item-body"><div class="item-top"><span class="item-name">${escapeHtml(it.name)}</span><span class="item-badges">${badges}</span></div>
-             ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div><div class="item-foot" style="padding-top:6px;">${cartCtrl}</div></div></div>`;
+             ${descHtml}<div class="item-foot"><span class="item-price">${priceHtml}</span>${voteRow}</div><div class="item-foot" style="padding-top:6px;">${cartCtrl}</div>${commentsHtml}</div></div>`;
             });
             html += "</div>";
           });
@@ -3223,6 +3523,8 @@
             price: "0.00",
             tags: [],
             available: true,
+            manualLikes: 0,
+            manualDislikes: 0,
           };
           sub.items.push(newItem);
           expandedItems.add(newItem.id);
@@ -3322,6 +3624,9 @@
 
       function buildItemCard(sectionId, subsectionId, item) {
         const isOpen = expandedItems.has(item.id);
+        const realVc = voteCounts[item.id] || { likes: 0, dislikes: 0 };
+        const manualLikes = Math.max(0, Math.round(Number(item.manualLikes)) || 0);
+        const manualDislikes = Math.max(0, Math.round(Number(item.manualDislikes)) || 0);
         const div = document.createElement("div");
         div.className = "admin-item-card" + (isOpen ? "" : " collapsed");
         div.dataset.itemId = item.id;
@@ -3359,8 +3664,28 @@
     </div>
     <div class="field"><textarea data-field="description" placeholder="Short description">${escapeHtml(item.description)}</textarea></div>
     <div class="field">
-      <label>Like % override (blank = use real votes)</label>
-      <input type="number" min="0" max="100" value="${item.likePercent !== undefined && item.likePercent !== null ? item.likePercent : ""}" data-field="likePercent" placeholder="Auto from customer votes">
+      <label>Likes &amp; dislikes shown on the menu</label>
+      <p class="field-hint">Real customer taps (${realVc.likes} 👍 · ${realVc.dislikes} 👎) plus any you add here — handy for seeding a new item.</p>
+      <div class="manual-vote-row">
+        <span class="manual-vote-label">👍 Likes</span>
+        <div class="qty-stepper">
+          <button type="button" data-field="manualLikesDec" aria-label="Remove one manual like">−</button>
+          <span data-field="manualLikesCount">${manualLikes}</span>
+          <button type="button" data-field="manualLikesInc" aria-label="Add one manual like">+</button>
+        </div>
+      </div>
+      <div class="manual-vote-row">
+        <span class="manual-vote-label">👎 Dislikes</span>
+        <div class="qty-stepper">
+          <button type="button" data-field="manualDislikesDec" aria-label="Remove one manual dislike">−</button>
+          <span data-field="manualDislikesCount">${manualDislikes}</span>
+          <button type="button" data-field="manualDislikesInc" aria-label="Add one manual dislike">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="field admin-comments-field">
+      <label>Customer comments</label>
+      <div class="admin-comments-list" data-field="commentsList"><p class="comments-empty">Expand to load comments.</p></div>
     </div>
     <div class="tag-toggles"></div>
     <div class="item-card-foot">
@@ -3502,6 +3827,8 @@
             expandedItems.delete(item.id);
           } else {
             expandedItems.add(item.id);
+            const commentsList = div.querySelector('[data-field="commentsList"]');
+            if (commentsList) loadAdminComments(item.id, commentsList);
           }
           toggleBtn.setAttribute(
             "aria-expanded",
@@ -3512,6 +3839,10 @@
             nowCollapsed ? "Expand item" : "Collapse item",
           );
         };
+        if (isOpen) {
+          const commentsList = div.querySelector('[data-field="commentsList"]');
+          if (commentsList) loadAdminComments(item.id, commentsList);
+        }
         const nameInput = div.querySelector('[data-field="name"]');
         const priceInput = div.querySelector('[data-field="price"]');
         const imageInput = div.querySelector('[data-field="image"]');
@@ -3522,8 +3853,11 @@
         const imagePreview = div.querySelector('[data-field="imagePreview"]');
         const removeImageBtn = div.querySelector('[data-field="removeImage"]');
         const descInput = div.querySelector('[data-field="description"]');
-        const likePercentInput = div.querySelector(
-          '[data-field="likePercent"]',
+        const manualLikesCountEl = div.querySelector(
+          '[data-field="manualLikesCount"]',
+        );
+        const manualDislikesCountEl = div.querySelector(
+          '[data-field="manualDislikesCount"]',
         );
         const availInput = div.querySelector('[data-field="available"]');
         const deleteBtn = div.querySelector('[data-field="delete"]');
@@ -3567,21 +3901,22 @@
             markDirty();
           }
         };
-        likePercentInput.onchange = () => {
+        function bumpManualVote(field, countEl, delta) {
           const cur = findItem();
           if (!cur) return;
-          const v = likePercentInput.value.trim();
-          if (v === "") {
-            delete cur.likePercent;
-          } else {
-            let n = Math.round(Number(v));
-            if (isNaN(n)) n = 0;
-            n = Math.max(0, Math.min(100, n));
-            cur.likePercent = n;
-            likePercentInput.value = n;
-          }
+          const now = Math.max(0, (Math.round(Number(cur[field])) || 0) + delta);
+          cur[field] = now;
+          countEl.textContent = now;
           markDirty();
-        };
+        }
+        div.querySelector('[data-field="manualLikesInc"]').onclick = () =>
+          bumpManualVote("manualLikes", manualLikesCountEl, 1);
+        div.querySelector('[data-field="manualLikesDec"]').onclick = () =>
+          bumpManualVote("manualLikes", manualLikesCountEl, -1);
+        div.querySelector('[data-field="manualDislikesInc"]').onclick = () =>
+          bumpManualVote("manualDislikes", manualDislikesCountEl, 1);
+        div.querySelector('[data-field="manualDislikesDec"]').onclick = () =>
+          bumpManualVote("manualDislikes", manualDislikesCountEl, -1);
 
         function setPreview(url) {
           if (url) {
