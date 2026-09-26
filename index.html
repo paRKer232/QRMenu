@@ -95,8 +95,8 @@
       <button
         class="fab fab-orders hidden"
         id="ordersToggle"
-        title="Live orders"
-        aria-label="Live orders"
+        title="Table panel"
+        aria-label="Table panel"
       >
         📋
         <span class="fab-badge hidden" id="ordersBadge">0</span>
@@ -139,6 +139,10 @@
 
       <div class="overlay hidden" id="finishedOverlay">
         <div class="panel" id="finishedPanel"></div>
+      </div>
+
+      <div class="overlay hidden" id="closedOverlay">
+        <div class="panel" id="closedPanel"></div>
       </div>
 
       <div class="overlay hidden" id="callOverlay">
@@ -890,6 +894,11 @@
       // later without losing what they'd already added.
       let cartsByTable = {}; // table -> { items: [{item_id,name,price,qty}], note: "" }
       let myOrders = []; // selectedTable's already-sent order_items
+      // table -> already-sent, still-active order_items across ALL tables.
+      // Only used to badge the table panel's grid (see staffTableGridHtml) —
+      // the actual per-item view/edit/status/finish/clear logic all lives
+      // in the cart panel for whichever table is currently selected.
+      let activeOrdersByTable = new Map();
       // These used to be Supabase Realtime (postgres_changes) subscriptions.
       // That requires an RLS SELECT policy on order_items/service_requests
       // for the anon role, which would let anyone holding the public anon
@@ -1002,6 +1011,11 @@
           .addEventListener("click", (e) => {
             if (e.target.id === "finishedOverlay") closeFinished();
           });
+        document
+          .getElementById("closedOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "closedOverlay") closeClosedCan();
+          });
       }
 
       /* ---- call waiter (customer-facing) ---- */
@@ -1113,15 +1127,23 @@
         for (let i = 1; i <= count; i++) {
           const t = String(i);
           const tableCart = cartsByTable[t];
-          const pendingQty = tableCart
+          const cartQty = tableCart
             ? tableCart.items.reduce((s, c) => s + c.qty, 0)
             : 0;
+          // Everything already sent to the kitchen for this table (status
+          // and edit/finish/clear controls all live in the cart now — this
+          // is just enough to tell the waiter which tables need attention).
+          const sentItems = activeOrdersByTable.get(t) || [];
+          const sentPendingQty = sentItems
+            .filter((it) => it.status !== "done")
+            .reduce((s, it) => s + it.qty, 0);
+          const badgeQty = cartQty + sentPendingQty;
           const active =
             staffOrderMode && t === String(selectedTable) ? " active" : "";
-          const occupied = pendingQty > 0 ? " occupied" : "";
+          const occupied = badgeQty > 0 || sentItems.length ? " occupied" : "";
           const badge =
-            pendingQty > 0
-              ? `<span class="table-btn-badge pending">${pendingQty}</span>`
+            badgeQty > 0
+              ? `<span class="table-btn-badge pending">${badgeQty}</span>`
               : "";
           grid += `<button class="table-btn${active}${occupied}" type="button" onclick="startTakingOrder('${i}')">${i}${badge}</button>`;
         }
@@ -1317,6 +1339,10 @@
         if (ordersOverlay && !ordersOverlay.classList.contains("hidden")) {
           refreshOrdersDashboard();
         }
+        const closedOverlay = document.getElementById("closedOverlay");
+        if (closedOverlay && !closedOverlay.classList.contains("hidden")) {
+          renderClosedCan();
+        }
       }
       function startEditCountdownTicker() {
         stopEditCountdownTicker();
@@ -1363,6 +1389,8 @@
         if (view === "cart") {
           await loadMyOrders();
           renderCartPanel();
+        } else if (view === "closed") {
+          renderClosedCan();
         } else {
           refreshOrdersDashboard();
         }
@@ -1485,7 +1513,7 @@
                   g,
                   "cart",
                   (it) =>
-                    `<span class="status-badge ${it.status}">${it.status === "done" ? "Ready" : "Preparing"}</span>`,
+                    `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}','cart')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
                 );
                 return `
       <div class="order-card">
@@ -1500,6 +1528,16 @@
               .join("");
         }
 
+        // Finish/clear act on the whole table, so only offer them once
+        // something has actually been sent to the kitchen for it.
+        const tableActionsHtml = myOrders.length
+          ? `<div class="divider"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-success" style="flex:1;" onclick="finishTableFromCart()">Finish table</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="clearTableFromCart()">Clear table</button>
+      </div>`
+          : "";
+
         panel.innerHTML = `
     <div class="panel-header">
       <h2>Table ${escapeHtml(selectedTable || "")}</h2>
@@ -1508,8 +1546,9 @@
     <div class="panel-scroll">
       ${cartHtml}
       ${sentHtml}
+      ${tableActionsHtml}
       <div class="divider"></div>
-      <button class="btn btn-block" onclick="finishTakingOrder()">Finish — back to Live orders</button>
+      <button class="btn btn-block" onclick="finishTakingOrder()">← Back to table panel</button>
     </div>`;
 
         const noteInput = document.getElementById("cartNoteInput");
@@ -1616,7 +1655,7 @@
         const exitLink = isAdminDevice
           ? getOwnerObserverMode()
             ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
-            : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Always open orders here</button>`
+            : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Always open table panel here</button>`
           : "";
         const activityBtn =
           staffRole === "owner"
@@ -1626,12 +1665,18 @@
           staffRole === "owner"
             ? `<button class="icon-btn" type="button" onclick="openFinished()" title="Finished tables (daily report)" aria-label="Finished tables">💰</button>`
             : "";
+        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="Closed tables" aria-label="Closed tables">🧺</button>`;
+        // The table panel is now just a table picker: tap a table to open
+        // its order cart, where all of that table's order logic lives (see
+        // renderCartPanel). It no longer shows a live, all-tables list of
+        // sent orders — that view moved into the per-table cart.
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Live orders</h2>
+      <h2>Table panel</h2>
       <div style="display:flex; align-items:center; gap:6px;">
         ${finishedBtn}
         ${activityBtn}
+        ${closedBtn}
         <button class="icon-btn" type="button" onclick="openTrash()" title="Trash" aria-label="Trash">🗑</button>
         <button class="icon-btn" onclick="closeOrders()">✕</button>
       </div>
@@ -1643,16 +1688,12 @@
         <div id="serviceRequestsList"></div>
       </div>
       <div class="admin-section-card">
-        <div class="section-heading" style="margin-bottom:10px;">Take an order</div>
-        <div class="table-grid">${staffTableGridHtml()}</div>
+        <div class="section-heading" style="margin-bottom:10px;">Choose a table</div>
+        <div class="table-grid" id="tableGrid">${staffTableGridHtml()}</div>
         <div class="table-gate-other">
           <input type="text" id="ordersOtherTableInput" placeholder="Други...">
           <button class="btn btn-primary" type="button" onclick="startTakingOrderOther()">Go</button>
         </div>
-      </div>
-      <div class="divider"></div>
-      <div id="ordersListWrap">
-        <p class="empty-state" style="padding:20px 0;">Loading…</p>
       </div>
     </div>`;
         subscribeStaffOrders();
@@ -1697,6 +1738,8 @@
             } catch (e) {}
             renderOrders();
             refreshOrdersBadge();
+          } else if (data === "bartender") {
+            showToast("That's a bartender PIN — use the bartender.html page instead");
           } else {
             showToast("Incorrect PIN");
           }
@@ -1705,6 +1748,10 @@
         }
       }
 
+      // Feeds the table panel's grid badges (see staffTableGridHtml) with
+      // what's already been sent to the kitchen for each table. All the
+      // actual order detail — items, status, edit, finish, clear — lives in
+      // the cart panel for whichever single table a waiter has open.
       async function refreshOrdersDashboard() {
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -1712,93 +1759,22 @@
             { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
           );
           if (error) throw error;
-          renderOrdersList(data || []);
+          activeOrdersByTable = new Map();
+          (data || []).forEach((r) => {
+            if (!activeOrdersByTable.has(r.table_number)) {
+              activeOrdersByTable.set(r.table_number, []);
+            }
+            activeOrdersByTable.get(r.table_number).push(r);
+          });
+          refreshTableGrid();
         } catch (e) {
           console.error("Could not load orders:", e);
-          const scroll = document.getElementById("ordersListWrap");
-          if (scroll)
-            scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load orders.</p>';
         }
       }
 
-      function renderOrdersList(rows) {
-        const scroll = document.getElementById("ordersListWrap");
-        if (!scroll) return;
-        if (!rows.length) {
-          scroll.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">No active orders right now.</p>';
-          return;
-        }
-        const byTable = new Map();
-        rows.forEach((r) => {
-          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
-          byTable.get(r.table_number).push(r);
-        });
-        const tables = Array.from(byTable.keys()).sort((a, b) => {
-          const na = parseFloat(a),
-            nb = parseFloat(b);
-          if (!isNaN(na) && !isNaN(nb)) return na - nb;
-          return String(a).localeCompare(String(b));
-        });
-        scroll.innerHTML = tables
-          .map((t) => {
-            const items = byTable.get(t);
-            const pendingCount = items.filter(
-              (i) => i.status === "pending",
-            ).length;
-            const groups = groupOrdersByOrderId(items);
-            const currency = (state.business && state.business.currency) || "$";
-            const billTotal = items.reduce(
-              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
-              0,
-            );
-            return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center;">
-        <span style="flex-shrink:0;">Table ${escapeHtml(t)}</span>
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          ${pendingCount ? `<span class="tab-badge">${pendingCount} pending</span>` : ""}
-          <button class="btn btn-sm add-more-btn" type="button" data-table="${escapeHtml(t)}">Add items</button>
-          <button class="btn btn-sm btn-success finish-table-btn" type="button" data-table="${escapeHtml(t)}">Finish table</button>
-          <button class="btn btn-sm btn-danger clear-table-btn" type="button" data-table="${escapeHtml(t)}">Clear table</button>
-        </div>
-      </div>
-      ${groups
-        .map((g) => {
-          const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
-            g,
-            "dashboard",
-            (it) =>
-              `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
-          );
-          return `
-        <div class="order-card">
-          <div class="order-card-head order-card-head-row">
-            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${countdown}</span>
-            ${editBtn}
-          </div>
-          ${itemsHtml}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
-        </div>`;
-        })
-        .join("")}
-      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
-        <span>${currency}${billTotal.toFixed(2)}</span>
-      </div>
-    </div>`;
-          })
-          .join("");
-        scroll.querySelectorAll(".clear-table-btn").forEach((btn) => {
-          btn.onclick = () => clearTableOrders(btn.dataset.table);
-        });
-        scroll.querySelectorAll(".finish-table-btn").forEach((btn) => {
-          btn.onclick = () => finishTableOrders(btn.dataset.table);
-        });
-        scroll.querySelectorAll(".add-more-btn").forEach((btn) => {
-          btn.onclick = () => startTakingOrder(btn.dataset.table);
-        });
-        if (Object.keys(editingOrders).length) startEditCountdownTicker();
+      function refreshTableGrid() {
+        const grid = document.getElementById("tableGrid");
+        if (grid) grid.innerHTML = staffTableGridHtml();
       }
 
       /* ---- trash (tables cleared via "Clear table") ---- */
@@ -2046,6 +2022,115 @@
           `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyFinished()">Clear report — start new day</button>`;
       }
 
+      /* ---- the "can" (tables closed by a waiter, awaiting payment) ---- */
+      // Separate from both the trash (voided tables) and the owner's daily
+      // finished-tables report. Pressing "Finish table" in Live Orders moves
+      // a table here via close_table_staff/the `closed` column — nothing
+      // about it touches `archived` or `finished`, so the owner's report
+      // and the trash stay exactly as they were. Items here stay fully
+      // editable, same as Live Orders. The PAY button is a placeholder only
+      // — no payment logic wired up yet.
+      function openClosedCan() {
+        document.getElementById("closedOverlay").classList.remove("hidden");
+        scrollLockY = window.scrollY;
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        renderClosedCan();
+      }
+      function closeClosedCan() {
+        document.getElementById("closedOverlay").classList.add("hidden");
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        window.scrollTo(0, scrollLockY);
+      }
+
+      async function renderClosedCan() {
+        const panel = document.getElementById("closedPanel");
+        if (!panel) return;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Closed tables</h2>
+      <button class="icon-btn" onclick="closeClosedCan()">✕</button>
+    </div>
+    <div class="panel-scroll" id="closedScroll">
+      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+    </div>`;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "get_closed_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
+          );
+          if (error) throw error;
+          renderClosedCanList(data || []);
+        } catch (e) {
+          console.error("Could not load closed tables:", e);
+          const scroll = document.getElementById("closedScroll");
+          if (scroll)
+            scroll.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">Could not load closed tables.</p>';
+        }
+      }
+
+      function renderClosedCanList(rows) {
+        const scroll = document.getElementById("closedScroll");
+        if (!scroll) return;
+        if (!rows.length) {
+          scroll.innerHTML =
+            '<p class="empty-state" style="padding:20px 0;">Nothing here yet.</p>';
+          return;
+        }
+        const byTable = new Map();
+        rows.forEach((r) => {
+          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
+          byTable.get(r.table_number).push(r);
+        });
+        const currency = (state.business && state.business.currency) || "$";
+        const tables = Array.from(byTable.keys()).sort((a, b) => {
+          const na = parseFloat(a),
+            nb = parseFloat(b);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return String(a).localeCompare(String(b));
+        });
+        scroll.innerHTML = tables
+          .map((t) => {
+            const items = byTable.get(t);
+            const groups = groupOrdersByOrderId(items);
+            const billTotal = items.reduce(
+              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
+              0,
+            );
+            return `<div class="admin-section-card">
+      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      ${groups
+        .map((g) => {
+          const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
+            g,
+            "closed",
+            (it) =>
+              `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}','closed')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
+          );
+          return `
+        <div class="order-card">
+          <div class="order-card-head order-card-head-row">
+            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${countdown}</span>
+            ${editBtn}
+          </div>
+          ${itemsHtml}
+          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
+        </div>`;
+        })
+        .join("")}
+      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
+        <span>Bill</span>
+        <span>${currency}${billTotal.toFixed(2)}</span>
+      </div>
+      <button class="btn btn-primary btn-block pay-btn" type="button" style="margin-top:10px;">PAY</button>
+    </div>`;
+          })
+          .join("");
+        if (Object.keys(editingOrders).length) startEditCountdownTicker();
+      }
+
       async function emptyFinished() {
         const ok = confirm(
           "Clear all finished tables? Do this only after you've recorded today's cash — it can't be undone.",
@@ -2078,6 +2163,7 @@
         empty_trash: "Изпразнено кошче",
         finish_table: "Готова маса",
         empty_finished: "Отчет изчистен",
+        close_table: "Затворена сметка",
       };
 
       function openActivity() {
@@ -2157,6 +2243,31 @@
           .join("");
       }
 
+      // Moves a table out of Live Orders into the "can" (see close_table_staff
+      // / the `closed` column) — separate from the owner's day's report and
+      // separate from the trash. Nothing here touches `finished`.
+      async function closeTable(tableNumber) {
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "close_table_staff",
+            {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPinOrders,
+              p_table: tableNumber,
+            },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          delete cartsByTable[tableNumber];
+          showToast(`Table ${tableNumber} closed`);
+          refreshOrdersDashboard();
+          return true;
+        } catch (e) {
+          console.error("Could not close table:", e);
+          showToast("Could not close table");
+          return false;
+        }
+      }
+
       async function finishTableOrders(tableNumber) {
         const ok = confirm(
           `Finish Table ${tableNumber}? This closes it out for today's report.`,
@@ -2184,7 +2295,7 @@
         const ok = confirm(
           `Clear all orders for Table ${tableNumber}? This can't be undone.`,
         );
-        if (!ok) return;
+        if (!ok) return false;
         try {
           const { data, error } = await supabaseClient.rpc(
             "clear_table_orders_staff",
@@ -2195,14 +2306,31 @@
             },
           );
           if (error || data !== true) throw error || new Error("rejected");
+          delete cartsByTable[tableNumber];
           showToast(`Table ${tableNumber} cleared`);
           refreshOrdersDashboard();
+          return true;
         } catch (e) {
           showToast("Could not clear table");
+          return false;
         }
       }
 
-      async function toggleItemStatus(itemId, currentStatus) {
+      // Wrappers used by the cart panel's own Finish/Clear buttons — act on
+      // the currently selected table, then step back to the table panel
+      // once the backend confirms it actually happened.
+      async function finishTableFromCart() {
+        if (!selectedTable) return;
+        const done = await closeTable(selectedTable);
+        if (done) finishTakingOrder();
+      }
+      async function clearTableFromCart() {
+        if (!selectedTable) return;
+        const done = await clearTableOrders(selectedTable);
+        if (done) finishTakingOrder();
+      }
+
+      async function toggleItemStatus(itemId, currentStatus, view) {
         const newStatus = currentStatus === "done" ? "pending" : "done";
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -2215,7 +2343,11 @@
             },
           );
           if (error || data !== true) throw error || new Error("rejected");
-          refreshOrdersDashboard();
+          if (view === "closed") renderClosedCan();
+          else if (view === "cart") {
+            await loadMyOrders();
+            renderCartPanel();
+          } else refreshOrdersDashboard();
         } catch (e) {
           showToast("Could not update item");
         }
@@ -3107,6 +3239,13 @@
       </div>
       <p style="color:var(--muted); font-size:12.5px; margin:-4px 0 10px;">Waiters use this PIN to open Live orders and take orders for a table. It can't open this menu editor.</p>
       <button class="btn btn-block" onclick="updateWaiterPin()">Update waiter PIN</button>
+      <div class="divider"></div>
+      <div class="field">
+        <label>Bartender PIN</label>
+        <input type="text" inputmode="numeric" maxlength="6" id="fBartenderPin" placeholder="Set a PIN for your bartender">
+      </div>
+      <p style="color:var(--muted); font-size:12.5px; margin:-4px 0 10px;">Bartenders use this PIN on the separate <code>bartender.html</code> page. It only shows live orders — never the menu, prices, or the option to take an order — and can't open this menu editor.</p>
+      <button class="btn btn-block" onclick="updateBartenderPin()">Update bartender PIN</button>
       <div class="field" style="margin-top:14px;">
         <label>Number of tables</label>
         <input type="number" min="1" max="200" id="fTableCount" value="${state.business.tableCount || 12}">
@@ -3359,6 +3498,25 @@
           showToast("Waiter PIN updated");
         } else {
           showToast(pinErrorMessage(error, "Could not update waiter PIN"));
+        }
+      }
+
+      async function updateBartenderPin() {
+        const input = document.getElementById("fBartenderPin");
+        const newPin = input ? input.value.trim() : "";
+        if (!newPin) {
+          showToast("Enter a bartender PIN first");
+          return;
+        }
+        const { data, error } = await supabaseClient.rpc(
+          "change_bartender_pin",
+          { p_slug: MENU_SLUG, p_owner_pin: sessionPinAdmin, p_new_bartender_pin: newPin },
+        );
+        if (!error && data === true) {
+          if (input) input.value = "";
+          showToast("Bartender PIN updated");
+        } else {
+          showToast(pinErrorMessage(error, "Could not update bartender PIN"));
         }
       }
 
