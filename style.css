@@ -1916,3 +1916,112 @@ textarea {
   margin: 0;
   color: #cbd5e1;
 }
+/* ---------- TABLES PANEL: MOBILE OPTIMIZATION ---------- */
+@media (max-width: 639px) {
+  /* Header: bigger, evenly spaced icon buttons that no longer overlap */
+  .panel-header {
+    padding: 16px 14px 12px 16px;
+    gap: 8px;
+  }
+  .panel-header > div {
+    gap: 2px !important;
+    flex-wrap: nowrap;
+  }
+  .panel-header .icon-btn {
+    font-size: 26px;
+    min-width: 48px;
+    min-height: 48px;
+    margin: 0;
+    border-radius: 12px;
+  }
+  .panel-header .icon-btn:active {
+    background: var(--accent-soft);
+  }
+  .orders-exit-observer {
+    padding: 14px 16px;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  /* Scroll area + cards: tighter side padding, more room for content */
+  .panel-scroll {
+    padding: 0 14px calc(24px + env(safe-area-inset-bottom));
+  }
+  .panel-scroll .admin-section-card {
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+
+  /* Table grid: 3 large, easy-to-tap buttons per row */
+  .table-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .table-btn {
+    min-height: 72px;
+    font-size: 24px;
+    border-radius: 14px;
+  }
+  .table-btn-badge {
+    top: -7px;
+    right: -7px;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 12px;
+    font-size: 13px;
+  }
+
+  /* "Other table" row: 16px input avoids iOS focus-zoom, big Go button */
+  .table-gate-other {
+    gap: 10px;
+  }
+  .table-gate-other input {
+    font-size: 16px;
+    min-height: 52px;
+    min-width: 0;
+  }
+  .table-gate-other .btn {
+    min-height: 52px;
+    min-width: 72px;
+    font-size: 16px;
+  }
+
+  /* Waiter call requests: stack text and full-width confirm button */
+  #serviceRequestsList .order-item-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    font-size: 15px;
+    padding: 10px 0;
+  }
+  #serviceRequestsList .btn {
+    width: 100%;
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  /* Call-waiter panel shares the same controls */
+  .panel-scroll textarea {
+    font-size: 16px;
+    min-height: 96px;
+  }
+  .panel-scroll .btn-block {
+    min-height: 52px;
+    font-size: 16px;
+  }
+}
+
+/* Very narrow phones: keep header icons on one row */
+@media (max-width: 380px) {
+  .panel-header .icon-btn {
+    font-size: 23px;
+    min-width: 42px;
+    min-height: 44px;
+  }
+  .table-btn {
+    min-height: 64px;
+    font-size: 21px;
+  }
+}
