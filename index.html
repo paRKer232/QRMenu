@@ -145,6 +145,10 @@
         <div class="panel" id="closedPanel"></div>
       </div>
 
+      <div class="overlay hidden" id="payOverlay">
+        <div class="panel" id="payPanel"></div>
+      </div>
+
       <div class="overlay hidden" id="callOverlay">
         <div class="panel" id="callPanel"></div>
       </div>
@@ -1016,6 +1020,11 @@
           .addEventListener("click", (e) => {
             if (e.target.id === "closedOverlay") closeClosedCan();
           });
+        document
+          .getElementById("payOverlay")
+          .addEventListener("click", (e) => {
+            if (e.target.id === "payOverlay") closePay();
+          });
       }
 
       /* ---- call waiter (customer-facing) ---- */
@@ -1074,7 +1083,7 @@
         const input = document.getElementById("callOtherTableInput");
         const val = input ? input.value.trim() : "";
         if (!val) {
-          showToast("Enter a table name first");
+          showToast("Първо въведете име на масата");
           return;
         }
         callWaiterTable = val;
@@ -1082,7 +1091,7 @@
       }
       async function sendCallWaiter() {
         if (!callWaiterTable) {
-          showToast("Please choose your table first");
+          showToast("Моля, първо изберете маса");
           return;
         }
         const msgInput = document.getElementById("callWaiterMessage");
@@ -1090,7 +1099,7 @@
         const btn = document.getElementById("callWaiterSendBtn");
         if (btn) {
           btn.disabled = true;
-          btn.textContent = "Sending…";
+          btn.textContent = "Изпращане…";
         }
         try {
           const { error } = await supabaseClient.rpc("request_service", {
@@ -1106,7 +1115,7 @@
           closeCallWaiter();
         } catch (e) {
           console.error("Call waiter failed:", e);
-          showToast("Could not reach staff, try again");
+          showToast("Няма връзка с персонала, опитайте отново");
         } finally {
           if (btn) {
             btn.disabled = false;
@@ -1153,7 +1162,7 @@
         const input = document.getElementById("ordersOtherTableInput");
         const val = input ? input.value.trim() : "";
         if (!val) {
-          showToast("Enter a table name first");
+          showToast("Първо въведете име на масата");
           return;
         }
         startTakingOrder(val);
@@ -1200,7 +1209,7 @@
         const pill = document.getElementById("tablePill");
         if (!pill) return;
         if (staffOrderMode && selectedTable) {
-          pill.textContent = "Taking order — Маса " + selectedTable;
+          pill.textContent = "Приемане на поръчка — Маса " + selectedTable;
           pill.classList.remove("hidden");
         } else {
           pill.classList.add("hidden");
@@ -1230,9 +1239,9 @@
           return `<button class="add-btn" type="button" onclick="addToCart('${itemId}')">+ Добави</button>`;
         }
         return `<div class="qty-stepper">
-    <button type="button" aria-label="Remove one" onclick="decCartItem('${itemId}')">−</button>
+    <button type="button" aria-label="Премахни един" onclick="decCartItem('${itemId}')">−</button>
     <span>${q}</span>
-    <button type="button" aria-label="Add one" onclick="addToCart('${itemId}')">+</button>
+    <button type="button" aria-label="Добави един" onclick="addToCart('${itemId}')">+</button>
   </div>`;
       }
       let lastCartTapAt = {};
@@ -1295,7 +1304,7 @@
       }
 
       /* ---- editing an order after it's already been sent ---- */
-      // An order goes to the kitchen the moment "Поръчай" is pressed — no
+      // An order goes to the kitchen the moment "Finish table" is pressed — no
       // more waiting. To fix a mistake after that, a waiter presses "Edit"
       // on that specific order, which opens it for correction and starts a
       // 15-minute window (only from that point, not from when it was sent).
@@ -1312,22 +1321,33 @@
         const s = totalSec % 60;
         return m + ":" + String(s).padStart(2, "0");
       }
+      // orderId may be one id or a comma-separated list (a merged table card
+      // covers every order sent for that table).
       function startEditingOrder(orderId) {
-        editingOrders[orderId] = Date.now() + ORDER_EDIT_MINUTES * 60 * 1000;
-        if (editingTimers[orderId]) clearTimeout(editingTimers[orderId]);
-        editingTimers[orderId] = setTimeout(
-          () => stopEditingOrder(orderId),
-          ORDER_EDIT_MINUTES * 60 * 1000,
-        );
+        const deadline = Date.now() + ORDER_EDIT_MINUTES * 60 * 1000;
+        String(orderId)
+          .split(",")
+          .forEach((id) => {
+            editingOrders[id] = deadline;
+            if (editingTimers[id]) clearTimeout(editingTimers[id]);
+            editingTimers[id] = setTimeout(
+              () => stopEditingOrder(id),
+              ORDER_EDIT_MINUTES * 60 * 1000,
+            );
+          });
         rerenderOrderViews();
         startEditCountdownTicker();
       }
       function stopEditingOrder(orderId) {
-        delete editingOrders[orderId];
-        if (editingTimers[orderId]) {
-          clearTimeout(editingTimers[orderId]);
-          delete editingTimers[orderId];
-        }
+        String(orderId)
+          .split(",")
+          .forEach((id) => {
+            delete editingOrders[id];
+            if (editingTimers[id]) {
+              clearTimeout(editingTimers[id]);
+              delete editingTimers[id];
+            }
+          });
         rerenderOrderViews();
       }
       function rerenderOrderViews() {
@@ -1383,7 +1403,7 @@
           if (error || data !== true) throw error || new Error("rejected");
         } catch (e) {
           console.error("Could not update sent item:", e);
-          showToast("Could not update that item");
+          showToast("Артикулът не може да бъде обновен");
           return;
         }
         if (view === "cart") {
@@ -1400,31 +1420,35 @@
       // the normal status badge or "Mark done" control.
       function sentOrderCardHtml(g, view, statusControl) {
         const anyPending = g.items.some((it) => it.status !== "done");
-        const editing = !!editingOrders[g.order_id];
+        const editKey = (g.order_ids || [g.order_id]).find(
+          (id) => editingOrders[id],
+        );
+        const editing = !!editKey;
+        const allIds = (g.order_ids || [g.order_id]).join(",");
         const editBtn = anyPending
           ? editing
-            ? `<button class="btn btn-sm" type="button" onclick="stopEditingOrder('${g.order_id}')">Done</button>`
-            : `<button class="btn btn-sm" type="button" onclick="startEditingOrder('${g.order_id}')">Edit</button>`
+            ? `<button class="btn btn-sm" type="button" onclick="stopEditingOrder('${allIds}')">Готово</button>`
+            : `<button class="btn btn-sm" type="button" onclick="startEditingOrder('${allIds}')">Редактирай</button>`
           : "";
         const countdown = editing
-          ? ` · closes in <span data-order-countdown="${g.order_id}">${formatCountdown(editingOrders[g.order_id] - Date.now())}</span>`
+          ? ` · затваря се след <span data-order-countdown="${editKey}">${formatCountdown(editingOrders[editKey] - Date.now())}</span>`
           : "";
         const itemsHtml = g.items
           .map((it) => {
             if (editing && it.status !== "done") {
               return `
         <div class="order-item-row">
-          <span>${escapeHtml(it.item_name)}</span>
+          <span>${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}</span>
           <div class="qty-stepper">
-            <button type="button" aria-label="Remove one" onclick="adjustSentItemQty('${it.id}', ${it.qty}, -1, '${view}')">−</button>
+            <button type="button" aria-label="Премахни един" onclick="adjustSentItemQty('${it.id}', ${it.qty}, -1, '${view}')">−</button>
             <span>${it.qty}</span>
-            <button type="button" aria-label="Add one" onclick="adjustSentItemQty('${it.id}', ${it.qty}, 1, '${view}')">+</button>
+            <button type="button" aria-label="Добави един" onclick="adjustSentItemQty('${it.id}', ${it.qty}, 1, '${view}')">+</button>
           </div>
         </div>`;
             }
             return `
         <div class="order-item-row ${it.status === "done" ? "done" : ""}">
-          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          ${itemLabelHtml(it)}
           ${statusControl(it)}
         </div>`;
           })
@@ -1432,22 +1456,55 @@
         return { editBtn, countdown, itemsHtml };
       }
 
+      // "Mark done" is a bar/owner action: waiters don't get the button.
+      // (Done items still show as done — only the control is hidden.)
+      function itemStatusControlHtml(it, view) {
+        if (staffRole !== "owner") return "";
+        return `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}','${view}')">${it.status === "done" ? "Върни" : "Приготвено"}</button>`;
+      }
+      // Small muted price line shown under each product in every order /
+      // table / receipt list. Shows the unit price, and the line total too
+      // when the quantity is more than 1.
+      function itemPriceNoteHtml(it) {
+        const cur = (state.business && state.business.currency) || "$";
+        const unit = parseFloat(it.price) || 0;
+        const qty = Number(it.qty) || 1;
+        const text =
+          qty > 1
+            ? `${qty} × ${cur}${unit.toFixed(2)} = ${cur}${(unit * qty).toFixed(2)}`
+            : `${cur}${unit.toFixed(2)}`;
+        return `<small style="display:block; font-size:11.5px; color:var(--muted); font-weight:400; margin-top:1px;">${text}</small>`;
+      }
+      function itemLabelHtml(it) {
+        return `<span>${it.qty}× ${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}</span>`;
+      }
+
+      // Everything ordered for one table shows up as ONE combined order
+      // card — a later order for the same table adds its items to that
+      // card instead of starting a new one. Callers always pass the rows
+      // of a single table, so this returns a one-element list. Items keep
+      // their own rows (status, qty edits) and are ordered oldest first.
       function groupOrdersByOrderId(rows) {
-        const map = new Map();
-        rows.forEach((r) => {
-          if (!map.has(r.order_id)) {
-            map.set(r.order_id, {
-              order_id: r.order_id,
-              created_at: r.created_at,
-              note: r.note,
-              items: [],
-            });
-          }
-          map.get(r.order_id).items.push(r);
+        if (!rows.length) return [];
+        const sorted = rows
+          .slice()
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const orderIds = [];
+        const notes = [];
+        sorted.forEach((r) => {
+          if (!orderIds.includes(r.order_id)) orderIds.push(r.order_id);
+          const n = r.note ? String(r.note).trim() : "";
+          if (n && !notes.includes(n)) notes.push(n);
         });
-        return Array.from(map.values()).sort(
-          (a, b) => new Date(b.created_at) - new Date(a.created_at),
-        );
+        return [
+          {
+            order_id: orderIds[0],
+            order_ids: orderIds,
+            created_at: sorted[0].created_at,
+            note: notes.join(" · "),
+            items: sorted,
+          },
+        ];
       }
 
       function openCart() {
@@ -1490,30 +1547,28 @@
           <span class="cart-line-price">${currency}${(parseFloat(c.price) || 0).toFixed(2)}</span>
         </div>
         <div class="qty-stepper">
-          <button type="button" aria-label="Remove one" onclick="decCartItem('${c.item_id}')">−</button>
+          <button type="button" aria-label="Премахни един" onclick="decCartItem('${c.item_id}')">−</button>
           <span>${c.qty}</span>
-          <button type="button" aria-label="Add one" onclick="addToCart('${c.item_id}')">+</button>
+          <button type="button" aria-label="Добави един" onclick="addToCart('${c.item_id}')">+</button>
         </div>
       </div>`,
               )
               .join("") +
             "</div>" +
             `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="например - без лук">${escapeHtml(ac.note)}</textarea></div>` +
-            `<div class="cart-total-row"><span>Total</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>` +
-            `<button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="placeOrder()">Поръчай</button>`;
+            `<div class="cart-total-row"><span>Общо</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>`;
         }
 
         let sentHtml = "";
         if (myOrders.length) {
           sentHtml =
-            `<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Sent to the kitchen</div>` +
+            `<div class="divider"></div><div class="section-heading" style="margin-bottom:10px;">Изпратено в бара</div>` +
             groupOrdersByOrderId(myOrders)
               .map((g) => {
                 const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
                   g,
                   "cart",
-                  (it) =>
-                    `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}','cart')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
+                  (it) => itemStatusControlHtml(it, "cart"),
                 );
                 return `
       <div class="order-card">
@@ -1528,19 +1583,21 @@
               .join("");
         }
 
-        // Finish/clear act on the whole table, so only offer them once
-        // something has actually been sent to the kitchen for it.
-        const tableActionsHtml = myOrders.length
-          ? `<div class="divider"></div>
+        // There is no separate "order" button any more: "Finish table"
+        // sends whatever is in the cart to the bartender. Offered whenever
+        // the table has an unsent cart or already-sent items.
+        const tableActionsHtml =
+          ac.items.length || myOrders.length
+            ? `<div class="divider"></div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-success" style="flex:1;" onclick="finishTableFromCart()">Finish table</button>
-        <button class="btn btn-danger" style="flex:1;" onclick="clearTableFromCart()">Clear table</button>
+        <button class="btn btn-success" id="finishTableBtn" style="flex:1;" onclick="finishTableFromCart()">Приключи масата</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="clearTableFromCart()">Изчисти масата</button>
       </div>`
-          : "";
+            : "";
 
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Table ${escapeHtml(selectedTable || "")}</h2>
+      <h2>Маса ${escapeHtml(selectedTable || "")}</h2>
       <button class="icon-btn" onclick="closeCart()">✕</button>
     </div>
     <div class="panel-scroll">
@@ -1548,7 +1605,7 @@
       ${sentHtml}
       ${tableActionsHtml}
       <div class="divider"></div>
-      <button class="btn btn-block" onclick="finishTakingOrder()">← Back to table panel</button>
+      <button class="btn btn-block" onclick="finishTakingOrder()">← Обратно към масите</button>
     </div>`;
 
         const noteInput = document.getElementById("cartNoteInput");
@@ -1560,14 +1617,13 @@
         if (Object.keys(editingOrders).length) startEditCountdownTicker();
       }
 
+      // Sends the current table's unsent cart to the bartender. Returns
+      // true on success. Called by "Finish table".
       async function placeOrder() {
         const ac = activeCart();
-        if (!ac.items.length || !selectedTable) return;
-        const btn = document.getElementById("placeOrderBtn");
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = "Placing order…";
-        }
+        if (!ac.items.length || !selectedTable) return false;
+        const noteInput = document.getElementById("cartNoteInput");
+        if (noteInput) ac.note = noteInput.value;
         try {
           const { error } = await supabaseClient.rpc("place_order", {
             p_slug: MENU_SLUG,
@@ -1584,16 +1640,12 @@
           if (error) throw error;
           delete cartsByTable[selectedTable];
           refreshCartUI();
-          showToast("Изпратено в кухнята!");
-          await loadMyOrders();
-          renderCartPanel();
+          showToast("Изпратено в бара!");
+          return true;
         } catch (e) {
           console.error("Order failed:", e);
-          showToast("Could not send the order, try again");
-          if (btn) {
-            btn.disabled = false;
-            btn.textContent = "Поръчай";
-          }
+          showToast("Поръчката не можа да бъде изпратена, опитайте отново");
+          return false;
         }
       }
 
@@ -1638,57 +1690,54 @@
         if (!unlockedOrders) {
           panel.innerHTML = `
       <div class="panel-header">
-        <h2>Live orders</h2>
+        <h2>Поръчки на живо</h2>
         <button class="icon-btn" onclick="closeOrders()">✕</button>
       </div>
       <div class="panel-scroll">
         <div class="lock-screen">
-          <p style="color:var(--muted); font-size:13.5px;">Enter your staff PIN to view live orders.</p>
+          <p style="color:var(--muted); font-size:13.5px;">Въведете PIN на персонала, за да видите поръчките.</p>
           <div class="field" style="max-width:180px; margin:14px auto;">
             <input type="text" inputmode="numeric" maxlength="6" id="ordersPinInput" placeholder="••••••">
           </div>
-          <button class="btn btn-primary" onclick="tryUnlockOrders()">Unlock</button>
+          <button class="btn btn-primary" onclick="tryUnlockOrders()">Отключи</button>
         </div>
       </div>`;
           return;
         }
         const exitLink = isAdminDevice
           ? getOwnerObserverMode()
-            ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Switch to table mode</button>`
-            : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Always open table panel here</button>`
+            ? `<button class="orders-exit-observer" type="button" onclick="exitOwnerObserverMode()">Превключи към режим маси</button>`
+            : `<button class="orders-exit-observer" type="button" onclick="enableOwnerObserverMode()">👀 Винаги отваряй панела с масите тук</button>`
           : "";
         const activityBtn =
           staffRole === "owner"
-            ? `<button class="icon-btn" type="button" onclick="openActivity()" title="Activity log" aria-label="Activity log">🕘</button>`
+            ? `<button class="icon-btn" type="button" onclick="openActivity()" title="Дневник на действията" aria-label="Дневник на действията">🕘</button>`
             : "";
-        const finishedBtn =
-          staffRole === "owner"
-            ? `<button class="icon-btn" type="button" onclick="openFinished()" title="Finished tables (daily report)" aria-label="Finished tables">💰</button>`
-            : "";
-        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="Closed tables" aria-label="Closed tables">🧺</button>`;
+        const finishedBtn = `<button class="icon-btn" type="button" onclick="openFinished()" title="Бележки" aria-label="Бележки">💰</button>`;
+        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="Затворени маси" aria-label="Затворени маси">🧺</button>`;
         // The table panel is now just a table picker: tap a table to open
         // its order cart, where all of that table's order logic lives (see
         // renderCartPanel). It no longer shows a live, all-tables list of
         // sent orders — that view moved into the per-table cart.
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Table panel</h2>
+      <h2>Маси</h2>
       <div style="display:flex; align-items:center; gap:6px;">
         ${finishedBtn}
         ${activityBtn}
         ${closedBtn}
-        <button class="icon-btn" type="button" onclick="openTrash()" title="Trash" aria-label="Trash">🗑</button>
+        <button class="icon-btn" type="button" onclick="openTrash()" title="Кошче" aria-label="Кошче">🗑</button>
         <button class="icon-btn" onclick="closeOrders()">✕</button>
       </div>
     </div>
     ${exitLink}
     <div class="panel-scroll" id="ordersScroll">
       <div class="admin-section-card" id="serviceRequestsCard" style="display:none;">
-        <div class="section-heading" style="margin-bottom:10px;">🔔 Calling for a waiter</div>
+        <div class="section-heading" style="margin-bottom:10px;">🔔 Викат сервитьор</div>
         <div id="serviceRequestsList"></div>
       </div>
       <div class="admin-section-card">
-        <div class="section-heading" style="margin-bottom:10px;">Choose a table</div>
+        <div class="section-heading" style="margin-bottom:10px;">Изберете маса</div>
         <div class="table-grid" id="tableGrid">${staffTableGridHtml()}</div>
         <div class="table-gate-other">
           <input type="text" id="ordersOtherTableInput" placeholder="Други...">
@@ -1708,7 +1757,7 @@
         if (m) {
           const secs = parseInt(m[1], 10);
           const mins = Math.ceil(secs / 60);
-          return "Too many attempts — try again in " + mins + " min";
+          return "Твърде много опити — опитайте отново след " + mins + " мин";
         }
         return fallback;
       }
@@ -1739,12 +1788,12 @@
             renderOrders();
             refreshOrdersBadge();
           } else if (data === "bartender") {
-            showToast("That's a bartender PIN — use the bartender.html page instead");
+            showToast("Това е PIN на барман — използвайте страницата bartender.html");
           } else {
-            showToast("Incorrect PIN");
+            showToast("Грешен PIN");
           }
         } catch (e) {
-          showToast(pinErrorMessage(e, "Could not verify PIN — check connection"));
+          showToast(pinErrorMessage(e, "PIN не може да бъде проверен — проверете връзката"));
         }
       }
 
@@ -1802,11 +1851,11 @@
         if (!panel) return;
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Trash</h2>
+      <h2>Кошче</h2>
       <button class="icon-btn" onclick="closeTrash()">✕</button>
     </div>
     <div class="panel-scroll" id="trashScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      <p class="empty-state" style="padding:20px 0;">Зареждане…</p>
     </div>`;
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -1820,7 +1869,7 @@
           const scroll = document.getElementById("trashScroll");
           if (scroll)
             scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load trash.</p>';
+              '<p class="empty-state" style="padding:20px 0;">Кошчето не може да бъде заредено.</p>';
         }
       }
 
@@ -1829,7 +1878,7 @@
         if (!scroll) return;
         if (!rows.length) {
           scroll.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">Trash is empty.</p>';
+            '<p class="empty-state" style="padding:20px 0;">Кошчето е празно.</p>';
           return;
         }
         const byTable = new Map();
@@ -1853,7 +1902,7 @@
               0,
             );
             return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      <div class="section-heading" style="margin-bottom:10px;">Маса ${escapeHtml(t)}</div>
       ${groups
         .map(
           (g) => `
@@ -1865,7 +1914,7 @@
             .map(
               (it) => `
         <div class="order-item-row">
-          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          ${itemLabelHtml(it)}
         </div>`,
             )
             .join("")}
@@ -1874,7 +1923,7 @@
         )
         .join("")}
       <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
+        <span>Сметка</span>
         <span>${currency}${billTotal.toFixed(2)}</span>
       </div>
     </div>`;
@@ -1882,12 +1931,12 @@
           .join("");
         scroll.innerHTML =
           html +
-          `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyTrash()">Empty trash</button>`;
+          `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyTrash()">Изпразни кошчето</button>`;
       }
 
       async function emptyTrash() {
         const ok = confirm(
-          "Permanently delete everything in the trash? This can't be undone.",
+          "Да се изтрие ли завинаги всичко от кошчето? Това не може да бъде отменено.",
         );
         if (!ok) return;
         try {
@@ -1896,15 +1945,15 @@
             { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
           );
           if (error || data !== true) throw error || new Error("rejected");
-          showToast("Trash emptied");
+          showToast("Кошчето е изпразнено");
           renderTrash();
         } catch (e) {
           console.error("Could not empty trash:", e);
-          showToast("Could not empty trash");
+          showToast("Кошчето не може да бъде изпразнено");
         }
       }
 
-      /* ---- finished tables (daily report / cash) ---- */
+      /* ---- receipts (tables paid & closed via PAY → Close table) ---- */
       // Same mechanics as the trash can: "Finish table" archives a table's
       // items out of Live Orders, just into a separate `finished` bucket
       // instead of `archived`, so the two never mix. Nothing purges this
@@ -1929,11 +1978,11 @@
         if (!panel) return;
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Finished tables</h2>
+      <h2>Касови бележки</h2>
       <button class="icon-btn" onclick="closeFinished()">✕</button>
     </div>
     <div class="panel-scroll" id="finishedScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      <p class="empty-state" style="padding:20px 0;">Зареждане…</p>
     </div>`;
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -1947,7 +1996,7 @@
           const scroll = document.getElementById("finishedScroll");
           if (scroll)
             scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load finished tables.</p>';
+              '<p class="empty-state" style="padding:20px 0;">Бележките не могат да бъдат заредени.</p>';
         }
       }
 
@@ -1956,7 +2005,7 @@
         if (!scroll) return;
         if (!rows.length) {
           scroll.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">No finished tables yet.</p>';
+            '<p class="empty-state" style="padding:20px 0;">Все още няма бележки.</p>';
           return;
         }
         const byTable = new Map();
@@ -1984,7 +2033,7 @@
               0,
             );
             return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      <div class="section-heading" style="margin-bottom:10px;">Маса ${escapeHtml(t)}</div>
       ${groups
         .map(
           (g) => `
@@ -1996,7 +2045,7 @@
             .map(
               (it) => `
         <div class="order-item-row">
-          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          ${itemLabelHtml(it)}
         </div>`,
             )
             .join("")}
@@ -2005,7 +2054,7 @@
         )
         .join("")}
       <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
+        <span>Сметка</span>
         <span>${currency}${billTotal.toFixed(2)}</span>
       </div>
     </div>`;
@@ -2014,12 +2063,14 @@
         scroll.innerHTML =
           `<div class="admin-section-card" style="background:rgba(74,222,128,0.08); border-color:rgba(74,222,128,0.25);">
       <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:16px;">
-        <span>Total (${tables.length} table${tables.length === 1 ? "" : "s"})</span>
+        <span>Общо (${tables.length} ${tables.length === 1 ? "маса" : "маси"})</span>
         <span>${currency}${grandTotal.toFixed(2)}</span>
       </div>
     </div>` +
           html +
-          `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyFinished()">Clear report — start new day</button>`;
+          (staffRole === "owner"
+            ? `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyFinished()">Изтрий всички бележки — нов ден</button>`
+            : "");
       }
 
       /* ---- the "can" (tables closed by a waiter, awaiting payment) ---- */
@@ -2049,11 +2100,11 @@
         if (!panel) return;
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Closed tables</h2>
+      <h2>Затворени маси</h2>
       <button class="icon-btn" onclick="closeClosedCan()">✕</button>
     </div>
     <div class="panel-scroll" id="closedScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      <p class="empty-state" style="padding:20px 0;">Зареждане…</p>
     </div>`;
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -2067,7 +2118,7 @@
           const scroll = document.getElementById("closedScroll");
           if (scroll)
             scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load closed tables.</p>';
+              '<p class="empty-state" style="padding:20px 0;">Затворените маси не могат да бъдат заредени.</p>';
         }
       }
 
@@ -2076,7 +2127,7 @@
         if (!scroll) return;
         if (!rows.length) {
           scroll.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">Nothing here yet.</p>';
+            '<p class="empty-state" style="padding:20px 0;">Все още няма нищо.</p>';
           return;
         }
         const byTable = new Map();
@@ -2091,6 +2142,7 @@
           if (!isNaN(na) && !isNaN(nb)) return na - nb;
           return String(a).localeCompare(String(b));
         });
+        closedBills = {};
         scroll.innerHTML = tables
           .map((t) => {
             const items = byTable.get(t);
@@ -2099,15 +2151,15 @@
               (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
               0,
             );
+            closedBills[t] = billTotal;
             return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
+      <div class="section-heading" style="margin-bottom:10px;">Маса ${escapeHtml(t)}</div>
       ${groups
         .map((g) => {
           const { editBtn, countdown, itemsHtml } = sentOrderCardHtml(
             g,
             "closed",
-            (it) =>
-              `<button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}','closed')">${it.status === "done" ? "Undo" : "Mark done"}</button>`,
+            (it) => itemStatusControlHtml(it, "closed"),
           );
           return `
         <div class="order-card">
@@ -2121,19 +2173,135 @@
         })
         .join("")}
       <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
+        <span>Сметка</span>
         <span>${currency}${billTotal.toFixed(2)}</span>
       </div>
-      <button class="btn btn-primary btn-block pay-btn" type="button" style="margin-top:10px;">PAY</button>
+      <button class="btn btn-primary btn-block pay-btn" type="button" style="margin-top:10px;" data-table="${escapeHtml(t)}" onclick="openPayOptions(this.dataset.table)">ПЛАЩАНЕ</button>
     </div>`;
           })
           .join("");
         if (Object.keys(editingOrders).length) startEditCountdownTicker();
       }
 
+      /* ---- PAY: close the table, or work out the change ---- */
+      let closedBills = {}; // table -> bill total, filled by renderClosedCanList
+      let payTable = null;
+
+      function openPayOptions(t) {
+        payTable = String(t);
+        document.getElementById("payOverlay").classList.remove("hidden");
+        renderPayOptions();
+      }
+      function closePay() {
+        document.getElementById("payOverlay").classList.add("hidden");
+        payTable = null;
+      }
+      function payCurrency() {
+        return (state.business && state.business.currency) || "$";
+      }
+      function renderPayOptions() {
+        const panel = document.getElementById("payPanel");
+        if (!panel || payTable == null) return;
+        const bill = closedBills[payTable] || 0;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Маса ${escapeHtml(payTable)} — Плащане</h2>
+      <button class="icon-btn" onclick="closePay()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      <div class="cart-total-row"><span>Сметка</span><span class="cart-total">${payCurrency()}${bill.toFixed(2)}</span></div>
+      <div class="divider"></div>
+      <button class="btn btn-primary btn-block" type="button" onclick="renderPayCalculator()">🧮 Изчисли ресто</button>
+      <button class="btn btn-success btn-block" type="button" style="margin-top:10px;" id="payCloseBtn" onclick="payCloseTable()">Затвори масата</button>
+    </div>`;
+      }
+      function renderPayCalculator() {
+        const panel = document.getElementById("payPanel");
+        if (!panel || payTable == null) return;
+        const bill = closedBills[payTable] || 0;
+        panel.innerHTML = `
+    <div class="panel-header">
+      <h2>Маса ${escapeHtml(payTable)} — Ресто</h2>
+      <button class="icon-btn" onclick="closePay()">✕</button>
+    </div>
+    <div class="panel-scroll">
+      <div class="cart-total-row"><span>Сметка</span><span class="cart-total">${payCurrency()}${bill.toFixed(2)}</span></div>
+      <div class="field" style="margin-top:14px;">
+        <label>Клиентът дава (${escapeHtml(payCurrency())})</label>
+        <input type="number" inputmode="decimal" min="0" step="0.01" id="payGivenInput" placeholder="0.00" oninput="updatePayChange()">
+      </div>
+      <button class="btn btn-sm" type="button" onclick="setPayGivenExact()">Точна сума</button>
+      <div class="cart-total-row" style="margin-top:16px;">
+        <span id="payChangeLabel">Ресто за връщане</span>
+        <span class="cart-total" id="payChangeValue">${payCurrency()}0.00</span>
+      </div>
+      <div class="divider"></div>
+      <button class="btn btn-success btn-block" type="button" id="payCloseBtn" onclick="payCloseTable()">Затвори масата</button>
+      <button class="btn btn-block" type="button" style="margin-top:10px;" onclick="renderPayOptions()">← Back</button>
+    </div>`;
+        const inp = document.getElementById("payGivenInput");
+        if (inp) inp.focus();
+      }
+      function setPayGivenExact() {
+        const inp = document.getElementById("payGivenInput");
+        if (!inp) return;
+        inp.value = (closedBills[payTable] || 0).toFixed(2);
+        updatePayChange();
+      }
+      function updatePayChange() {
+        const inp = document.getElementById("payGivenInput");
+        const label = document.getElementById("payChangeLabel");
+        const val = document.getElementById("payChangeValue");
+        if (!inp || !label || !val) return;
+        const bill = closedBills[payTable] || 0;
+        const given = parseFloat(inp.value);
+        if (isNaN(given)) {
+          label.textContent = "Ресто за връщане";
+          val.textContent = payCurrency() + "0.00";
+          val.style.color = "";
+          return;
+        }
+        // Work in cents so 0.1 + 0.2 style float noise never shows up.
+        const diff = Math.round(given * 100) - Math.round(bill * 100);
+        if (diff >= 0) {
+          label.textContent = "Ресто за връщане";
+          val.textContent = payCurrency() + (diff / 100).toFixed(2);
+          val.style.color = "";
+        } else {
+          label.textContent = "Остава да се доплати";
+          val.textContent = payCurrency() + (-diff / 100).toFixed(2);
+          val.style.color = "#f87171";
+        }
+      }
+      async function payCloseTable() {
+        if (payTable == null) return;
+        const t = payTable;
+        const btn = document.getElementById("payCloseBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const { data, error } = await supabaseClient.rpc(
+            "finish_table_orders_staff",
+            { p_slug: MENU_SLUG, p_pin: sessionPinOrders, p_table: t },
+          );
+          if (error || data !== true) throw error || new Error("rejected");
+          showToast(`Маса ${t} е преместена в бележките`);
+          closePay();
+          renderClosedCan();
+          refreshOrdersDashboard();
+        } catch (e) {
+          console.error("Could not close table:", e);
+          showToast("Масата не може да бъде затворена");
+          if (btn) btn.disabled = false;
+        }
+      }
+
       async function emptyFinished() {
+        if (staffRole !== "owner") {
+          showToast("Само собственикът може да изтрива бележки");
+          return;
+        }
         const ok = confirm(
-          "Clear all finished tables? Do this only after you've recorded today's cash — it can't be undone.",
+          "Да се изтрият ли всички бележки? Направете го само след като сте записали днешния оборот — това не може да бъде отменено.",
         );
         if (!ok) return;
         try {
@@ -2142,11 +2310,11 @@
             { p_slug: MENU_SLUG, p_pin: sessionPinOrders },
           );
           if (error || data !== true) throw error || new Error("rejected");
-          showToast("Report cleared");
+          showToast("Бележките са изтрити");
           renderFinished();
         } catch (e) {
           console.error("Could not clear finished tables:", e);
-          showToast("Could not clear finished tables");
+          showToast("Бележките не могат да бъдат изтрити");
         }
       }
 
@@ -2164,6 +2332,7 @@
         finish_table: "Готова маса",
         empty_finished: "Отчет изчистен",
         close_table: "Затворена сметка",
+        bar_clear: "Изчистена от бара",
       };
 
       function openActivity() {
@@ -2185,11 +2354,11 @@
         if (!panel) return;
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Activity log</h2>
+      <h2>Дневник на действията</h2>
       <button class="icon-btn" onclick="closeActivity()">✕</button>
     </div>
     <div class="panel-scroll" id="activityScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
+      <p class="empty-state" style="padding:20px 0;">Зареждане…</p>
     </div>`;
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -2203,7 +2372,7 @@
           const scroll = document.getElementById("activityScroll");
           if (scroll)
             scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load activity log.</p>';
+              '<p class="empty-state" style="padding:20px 0;">Дневникът не може да бъде зареден.</p>';
         }
       }
 
@@ -2212,13 +2381,13 @@
         if (!scroll) return;
         if (!rows.length) {
           scroll.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">No edits yet.</p>';
+            '<p class="empty-state" style="padding:20px 0;">Все още няма промени.</p>';
           return;
         }
         scroll.innerHTML = rows
           .map((r) => {
             const label = EDIT_LOG_ACTION_LABELS[r.action] || r.action;
-            const who = r.role === "owner" ? "Owner" : "Waiter";
+            const who = r.role === "owner" ? "Собственик" : "Сервитьор";
             const when = new Date(r.created_at).toLocaleString([], {
               month: "short",
               day: "numeric",
@@ -2226,7 +2395,7 @@
               minute: "2-digit",
             });
             const target = [
-              r.table_number ? `Table ${escapeHtml(r.table_number)}` : "",
+              r.table_number ? `Маса ${escapeHtml(r.table_number)}` : "",
               r.item_name ? escapeHtml(r.item_name) : "",
             ]
               .filter(Boolean)
@@ -2258,19 +2427,19 @@
           );
           if (error || data !== true) throw error || new Error("rejected");
           delete cartsByTable[tableNumber];
-          showToast(`Table ${tableNumber} closed`);
+          showToast(`Маса ${tableNumber} е затворена`);
           refreshOrdersDashboard();
           return true;
         } catch (e) {
           console.error("Could not close table:", e);
-          showToast("Could not close table");
+          showToast("Масата не може да бъде затворена");
           return false;
         }
       }
 
       async function finishTableOrders(tableNumber) {
         const ok = confirm(
-          `Finish Table ${tableNumber}? This closes it out for today's report.`,
+          `Да се приключи ли маса ${tableNumber}? Тя ще бъде затворена за днешния отчет.`,
         );
         if (!ok) return;
         try {
@@ -2283,17 +2452,17 @@
             },
           );
           if (error || data !== true) throw error || new Error("rejected");
-          showToast(`Table ${tableNumber} finished`);
+          showToast(`Маса ${tableNumber} е приключена`);
           refreshOrdersDashboard();
         } catch (e) {
           console.error("Could not finish table:", e);
-          showToast("Could not finish table");
+          showToast("Масата не може да бъде приключена");
         }
       }
 
       async function clearTableOrders(tableNumber) {
         const ok = confirm(
-          `Clear all orders for Table ${tableNumber}? This can't be undone.`,
+          `Да се изчистят ли всички поръчки за маса ${tableNumber}? Това не може да бъде отменено.`,
         );
         if (!ok) return false;
         try {
@@ -2307,11 +2476,11 @@
           );
           if (error || data !== true) throw error || new Error("rejected");
           delete cartsByTable[tableNumber];
-          showToast(`Table ${tableNumber} cleared`);
+          showToast(`Маса ${tableNumber} е изчистена`);
           refreshOrdersDashboard();
           return true;
         } catch (e) {
-          showToast("Could not clear table");
+          showToast("Масата не може да бъде изчистена");
           return false;
         }
       }
@@ -2321,16 +2490,40 @@
       // once the backend confirms it actually happened.
       async function finishTableFromCart() {
         if (!selectedTable) return;
-        const done = await closeTable(selectedTable);
-        if (done) finishTakingOrder();
+        if (!activeCart().items.length) {
+          showToast("Първо добавете артикули към масата");
+          return;
+        }
+        const btn = document.getElementById("finishTableBtn");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Изпращане…";
+        }
+        // Send the order to the bartender, then move the table to the
+        // closed tables panel (where PAY lives).
+        const sent = await placeOrder();
+        const closed = sent && (await closeTable(selectedTable));
+        if (sent) finishTakingOrder();
+        if (!closed && btn) {
+          btn.disabled = false;
+          btn.textContent = "Приключи масата";
+        }
       }
       async function clearTableFromCart() {
         if (!selectedTable) return;
+        // Nothing sent yet — just discard the unsent cart locally.
+        if (!myOrders.length) {
+          if (!confirm(`Да се изчисти ли количката на маса ${selectedTable}?`)) return;
+          delete cartsByTable[selectedTable];
+          finishTakingOrder();
+          return;
+        }
         const done = await clearTableOrders(selectedTable);
         if (done) finishTakingOrder();
       }
 
       async function toggleItemStatus(itemId, currentStatus, view) {
+        if (staffRole !== "owner") return;
         const newStatus = currentStatus === "done" ? "pending" : "done";
         try {
           const { data, error } = await supabaseClient.rpc(
@@ -2349,7 +2542,7 @@
             renderCartPanel();
           } else refreshOrdersDashboard();
         } catch (e) {
-          showToast("Could not update item");
+          showToast("Артикулът не може да бъде обновен");
         }
       }
 
@@ -2382,8 +2575,8 @@
           .map(
             (r) => `
       <div class="order-item-row">
-        <span>Table ${escapeHtml(r.table_number)}${r.message ? " — " + escapeHtml(r.message) : ""}</span>
-        <button class="btn btn-sm btn-primary" data-req="${r.id}">Got it</button>
+        <span>Маса ${escapeHtml(r.table_number)}${r.message ? " — " + escapeHtml(r.message) : ""}</span>
+        <button class="btn btn-sm btn-primary" data-req="${r.id}">Прието</button>
       </div>`,
           )
           .join("");
@@ -2414,7 +2607,7 @@
           refreshOrdersBadge();
         } catch (e) {
           if (btn) btn.disabled = false;
-          showToast("Could not clear that notification");
+          showToast("Известието не може да бъде изчистено");
         }
       }
 
@@ -3246,6 +3439,13 @@
       </div>
       <p style="color:var(--muted); font-size:12.5px; margin:-4px 0 10px;">Bartenders use this PIN on the separate <code>bartender.html</code> page. It only shows live orders — never the menu, prices, or the option to take an order — and can't open this menu editor.</p>
       <button class="btn btn-block" onclick="updateBartenderPin()">Update bartender PIN</button>
+      <div class="divider"></div>
+      <div class="field">
+        <label>Kitchen PIN</label>
+        <input type="text" inputmode="numeric" maxlength="6" id="fKitchenPin" placeholder="Set a PIN for your kitchen">
+      </div>
+      <p style="color:var(--muted); font-size:12.5px; margin:-4px 0 10px;">The kitchen uses this PIN on the separate <code>kitchen.html</code> page. It only shows orders for items in categories set to Kitchen — never the menu, prices, or the option to take an order — and can't open this menu editor.</p>
+      <button class="btn btn-block" onclick="updateKitchenPin()">Update kitchen PIN</button>
       <div class="field" style="margin-top:14px;">
         <label>Number of tables</label>
         <input type="number" min="1" max="200" id="fTableCount" value="${state.business.tableCount || 12}">
@@ -3520,6 +3720,25 @@
         }
       }
 
+      async function updateKitchenPin() {
+        const input = document.getElementById("fKitchenPin");
+        const newPin = input ? input.value.trim() : "";
+        if (!newPin) {
+          showToast("Enter a kitchen PIN first");
+          return;
+        }
+        const { data, error } = await supabaseClient.rpc(
+          "change_kitchen_pin",
+          { p_slug: MENU_SLUG, p_owner_pin: sessionPinAdmin, p_new_kitchen_pin: newPin },
+        );
+        if (!error && data === true) {
+          if (input) input.value = "";
+          showToast("Kitchen PIN updated");
+        } else {
+          showToast(pinErrorMessage(error, "Could not update kitchen PIN"));
+        }
+      }
+
       function renderQrPreview() {
         const box = document.getElementById("qrcode");
         if (!box) return;
@@ -3564,6 +3783,10 @@
           <div class="admin-section-card-head">
             <div class="section-type-label">Category</div>
             <input type="text" value="${escapeHtml(sec.title)}" data-role="sectionTitle" data-sid="${sec.id}" placeholder="Category name (e.g. Alcohols)">
+            <select data-role="sectionStation" data-sid="${sec.id}" title="Which screen shows orders from this category" style="flex:0 0 auto; width:auto; padding:6px 8px; border-radius:8px; border:1px solid var(--line, rgba(0,0,0,.2)); background:var(--bg-2); color:inherit; font:inherit; font-size:13px;">
+              <option value="bar"${sec.station === "kitchen" ? "" : " selected"}>Bar</option>
+              <option value="kitchen"${sec.station === "kitchen" ? " selected" : ""}>Kitchen</option>
+            </select>
             <button class="btn btn-sm" data-role="moveUp" data-sid="${sec.id}" title="Move up">↑</button>
             <button class="btn btn-sm" data-role="moveDown" data-sid="${sec.id}" title="Move down">↓</button>
             <button class="btn btn-sm btn-danger" data-role="deleteSection" data-sid="${sec.id}">Delete</button>
@@ -3583,6 +3806,15 @@
             const sec = state.sections.find((s) => s.id === el.dataset.sid);
             if (sec) {
               sec.title = el.value.trim() || "Untitled";
+              markDirty();
+            }
+          };
+        });
+        wrap.querySelectorAll('[data-role="sectionStation"]').forEach((el) => {
+          el.onchange = () => {
+            const sec = state.sections.find((s) => s.id === el.dataset.sid);
+            if (sec) {
+              sec.station = el.value === "kitchen" ? "kitchen" : "bar";
               markDirty();
             }
           };

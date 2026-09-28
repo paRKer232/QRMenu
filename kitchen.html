@@ -6,13 +6,12 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>Bar — Live Orders</title>
+    <title>Kitchen — Live Orders</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="style.css" />
     <style>
-      /* Small additions specific to this page only — everything else
-         (panel, order-card, table-btn, status-badge, etc.) is reused
-         as-is from style.css so this page matches the main app's look. */
+      /* Same look as bartender.html — everything else (panel, order-card,
+         btn, tab-badge, etc.) is reused as-is from style.css. */
       body {
         min-height: 100vh;
         min-height: 100dvh;
@@ -79,12 +78,11 @@
         <div style="display:flex; align-items:center; gap:10px;">
           <img class="bar-logo hidden" id="bizLogoHeader" src="" alt="" />
           <div>
-            <h1 id="bizNameHeader">🍸 Bar — Live Orders</h1>
-            <p class="bar-sub" id="bizSubHeader">Orders only — no menu, no editing</p>
+            <h1 id="bizNameHeader">🍳 Kitchen — Live Orders</h1>
+            <p class="bar-sub" id="bizSubHeader">Meals only — no menu, no editing</p>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
-          <button class="icon-btn hidden" type="button" id="receiptsBtn" title="Receipts" aria-label="Receipts">💰</button>
           <button class="icon-btn hidden" type="button" id="activityBtn" title="Activity log" aria-label="Activity log">🕘</button>
           <button class="icon-btn hidden" type="button" id="lockBtn" title="Lock" aria-label="Lock">🔒</button>
         </div>
@@ -92,20 +90,16 @@
 
       <div class="bar-lock-wrap" id="lockWrap">
         <div class="lock-screen">
-          <p style="color:var(--muted); font-size:13.5px;">Enter your bartender PIN.</p>
+          <p style="color:var(--muted); font-size:13.5px;">Enter your kitchen PIN.</p>
           <div class="field" style="max-width:180px; margin:14px auto;">
             <input type="text" inputmode="numeric" maxlength="6" id="pinInput" placeholder="••••••" />
           </div>
           <button class="btn btn-primary" id="unlockBtn">Unlock</button>
-          <p style="color:var(--muted); font-size:11.5px; margin-top:16px; max-width:260px;">First time setting this up? Make sure the Supabase migration has been run — see <code>bartender-backend-migration.sql</code> — or the PIN and/or the orders list won't work yet.</p>
+          <p style="color:var(--muted); font-size:11.5px; margin-top:16px; max-width:260px;">First time setting this up? Make sure the Supabase migration has been run — see <code>kitchen-backend-migration.sql</code> — or the PIN and/or the orders list won't work yet.</p>
         </div>
       </div>
 
       <div class="bar-scroll hidden" id="boardScroll">
-        <div class="admin-section-card" id="serviceRequestsCard" style="display:none;">
-          <div class="section-heading" style="margin-bottom:10px;">🔔 Calling for a waiter</div>
-          <div id="serviceRequestsList"></div>
-        </div>
         <div id="ordersListWrap">
           <p class="empty-state" style="padding:20px 0;">Loading…</p>
         </div>
@@ -115,27 +109,19 @@
     <div class="overlay hidden" id="activityOverlay">
       <div class="panel" id="activityPanel"></div>
     </div>
-    <div class="overlay hidden" id="receiptsOverlay">
-      <div class="panel" id="receiptsPanel"></div>
-    </div>
 
     <div class="toast hidden" id="toast"></div>
 
     <script>
-      // Keep these three in sync with index.html — same Supabase project
-      // and the same menu slug, since this page reads the same orders.
+      // Keep these three in sync with index.html / bartender.html — same
+      // Supabase project and the same menu slug, since this page reads the
+      // same orders.
       const SUPABASE_URL = "https://kwjqeqkvmnwsbeddhcun.supabase.co";
       const SUPABASE_ANON_KEY =
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3anFlcWt2bW53c2JlZGRoY3VuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NjMxODQsImV4cCI6MjA5NjUzOTE4NH0.OA-lNRtUvprPh4IwYxTBL8-illZ5hvQ3oOuIXT8r800";
       const MENU_SLUG = "cafe-aurora";
 
-      // Currency symbol shown on bills. This page never fetches the menu
-      // (so it never sees product names, prices, or descriptions ahead of
-      // time), so if get_business_info_public isn't set up yet this is
-      // the fallback used instead. Edit to match your currency.
-      const DEFAULT_CURRENCY = "$";
-
-      const SESSION_KEY = "barOrdersSession_" + MENU_SLUG;
+      const SESSION_KEY = "kitchenOrdersSession_" + MENU_SLUG;
 
       const supabaseClient = window.supabase.createClient(
         SUPABASE_URL,
@@ -143,10 +129,10 @@
       );
 
       let sessionPin = null;
-      let staffRole = null; // 'owner' | 'bartender'
-      let currency = DEFAULT_CURRENCY;
+      let staffRole = null; // 'owner' | 'kitchen'
+      let kitchenItemIds = null; // null = menu not loaded yet
       let ordersPollTimer = null;
-      let requestsPollTimer = null;
+      let menuPollTimer = null;
 
       function escapeHtml(str) {
         const d = document.createElement("div");
@@ -175,9 +161,8 @@
 
       // Everything ordered for one table shows up as ONE combined order
       // card — a later order for the same table adds its items to that
-      // card instead of starting a new one. Callers always pass the rows
-      // of a single table, so this returns a one-element list. Items keep
-      // their own rows (status, qty edits) and are ordered oldest first.
+      // card instead of starting a new one. Items keep their own rows
+      // (status) and are ordered oldest first.
       function groupOrdersByOrderId(rows) {
         if (!rows.length) return [];
         const sorted = rows
@@ -216,11 +201,10 @@
             { p_slug: MENU_SLUG, p_pin: val },
           );
           if (error) throw error;
-          // Accepts the bartender PIN, and the owner PIN so an owner can
-          // check in on the bar without needing a second device/PIN.
-          // Waiter PINs are deliberately NOT accepted here — waiters
-          // belong on the main menu page, not this stripped-down screen.
-          if (data === "bartender" || data === "owner") {
+          // Accepts the kitchen PIN, and the owner PIN so an owner can
+          // check in on the kitchen without needing a second PIN. Waiter
+          // and bartender PINs are deliberately NOT accepted here.
+          if (data === "kitchen" || data === "owner") {
             sessionPin = val;
             staffRole = data;
             try {
@@ -232,6 +216,8 @@
             enterBoard();
           } else if (data === "waiter") {
             showToast("That's a waiter PIN — use the main menu page instead");
+          } else if (data === "bartender") {
+            showToast("That's a bartender PIN — use bartender.html instead");
           } else {
             showToast("Incorrect PIN");
           }
@@ -257,6 +243,7 @@
       function lockBoard() {
         sessionPin = null;
         staffRole = null;
+        kitchenItemIds = null;
         try {
           sessionStorage.removeItem(SESSION_KEY);
         } catch (e) {}
@@ -264,56 +251,66 @@
         document.getElementById("boardScroll").classList.add("hidden");
         document.getElementById("lockWrap").classList.remove("hidden");
         document.getElementById("lockBtn").classList.add("hidden");
-        document.getElementById("receiptsBtn").classList.add("hidden");
         document.getElementById("activityBtn").classList.add("hidden");
         const pinInput = document.getElementById("pinInput");
         if (pinInput) pinInput.value = "";
       }
 
-      function enterBoard() {
+      async function enterBoard() {
         document.getElementById("lockWrap").classList.add("hidden");
         document.getElementById("boardScroll").classList.remove("hidden");
         document.getElementById("lockBtn").classList.remove("hidden");
-        document.getElementById("receiptsBtn").classList.remove("hidden");
         if (staffRole === "owner") {
           document.getElementById("activityBtn").classList.remove("hidden");
         }
-        loadBusinessInfo();
+        // The menu has to be loaded first: it's how this page knows which
+        // items are meals (sections set to "Kitchen" in the menu editor).
+        await loadKitchenMenu();
         refreshOrdersDashboard();
-        refreshServiceRequests();
         startPolling();
       }
 
-      // Best-effort: only fetches {name, currency, accent, logo} — never
-      // sections/items — so bar staff still never receive product data
-      // over the network. Safe to leave this RPC unimplemented; the page
-      // just falls back to the sage theme and a generic header.
-      async function loadBusinessInfo() {
+      /* ---- which items belong to the kitchen ---- */
+
+      // The menu is already public (customers load it with the same anon
+      // key), so this page reads it to learn (a) the ids of every item in a
+      // section whose station is "kitchen", and (b) the business name,
+      // theme and logo for the header. Sections with no station set count
+      // as bar items, so nothing appears here until the owner marks a
+      // section as Kitchen.
+      async function loadKitchenMenu() {
         try {
-          const { data, error } = await supabaseClient.rpc(
-            "get_business_info_public",
-            { p_slug: MENU_SLUG },
-          );
+          const { data, error } = await supabaseClient.rpc("get_menu", {
+            p_slug: MENU_SLUG,
+          });
           if (error) throw error;
-          if (data) {
-            if (data.name) {
-              document.getElementById("bizNameHeader").textContent = data.name + " — Bar";
-            }
-            if (data.currency) currency = data.currency;
-            if (data.accent) document.body.setAttribute("data-theme", data.accent);
-            if (data.logo) {
-              const img = document.getElementById("bizLogoHeader");
-              if (img) {
-                img.src = data.logo;
-                img.classList.remove("hidden");
-              }
+          const ids = [];
+          ((data && data.sections) || []).forEach((sec) => {
+            if (sec.station !== "kitchen") return;
+            (sec.subsections || []).forEach((sub) =>
+              (sub.items || []).forEach((i) => ids.push(String(i.id))),
+            );
+            (sec.items || []).forEach((i) => ids.push(String(i.id))); // legacy sections
+          });
+          kitchenItemIds = ids;
+
+          const biz = (data && data.business) || {};
+          if (biz.name) {
+            document.getElementById("bizNameHeader").textContent =
+              biz.name + " — Kitchen";
+          }
+          if (biz.accent) document.body.setAttribute("data-theme", biz.accent);
+          if (biz.logo) {
+            const img = document.getElementById("bizLogoHeader");
+            if (img) {
+              img.src = biz.logo;
+              img.classList.remove("hidden");
             }
           }
         } catch (e) {
-          // Fine — the sage theme, generic header, and DEFAULT_CURRENCY stay as-is.
-          console.warn(
-            "get_business_info_public isn't set up yet (or failed) — using defaults. See bartender-backend-migration.sql.",
-          );
+          console.error("Could not load menu:", e);
+          // Keep the last known list if we had one; otherwise stay null so
+          // the board shows an error instead of guessing.
         }
       }
 
@@ -323,10 +320,11 @@
             if (document.visibilityState === "visible") refreshOrdersDashboard();
           }, 4000);
         }
-        if (!requestsPollTimer) {
-          requestsPollTimer = setInterval(() => {
-            if (document.visibilityState === "visible") refreshServiceRequests();
-          }, 4000);
+        // Pick up section changes made in the owner's menu editor.
+        if (!menuPollTimer) {
+          menuPollTimer = setInterval(() => {
+            if (document.visibilityState === "visible") loadKitchenMenu();
+          }, 60000);
         }
       }
       function stopPolling() {
@@ -334,36 +332,50 @@
           clearInterval(ordersPollTimer);
           ordersPollTimer = null;
         }
-        if (requestsPollTimer) {
-          clearInterval(requestsPollTimer);
-          requestsPollTimer = null;
+        if (menuPollTimer) {
+          clearInterval(menuPollTimer);
+          menuPollTimer = null;
         }
       }
 
       /* ---- live orders board ---- */
 
       async function refreshOrdersDashboard() {
+        const wrap = document.getElementById("ordersListWrap");
+        if (kitchenItemIds === null) {
+          // Menu didn't load — retry rather than show a wrong (empty) board.
+          await loadKitchenMenu();
+          if (kitchenItemIds === null) {
+            if (wrap)
+              wrap.innerHTML =
+                '<p class="empty-state" style="padding:20px 0;">Could not load the menu.</p>';
+            return;
+          }
+        }
+        if (!kitchenItemIds.length) {
+          if (wrap)
+            wrap.innerHTML =
+              '<p class="empty-state" style="padding:20px 0;">No menu sections are set to Kitchen yet. The owner can set this in the menu editor.</p>';
+          return;
+        }
         try {
-          // The bar must keep seeing a table's items after the waiter
-          // presses "Finish table" (which moves it to Closed tables while
-          // it waits for payment), so this uses get_bar_orders_staff —
-          // everything not yet paid/finished. Falls back to the old call
-          // if that function hasn't been created yet.
-          let res = await supabaseClient.rpc("get_bar_orders_staff", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-          });
-          if (res.error) {
-            res = await supabaseClient.rpc("get_active_orders_staff", {
+          const { data, error } = await supabaseClient.rpc(
+            "get_kitchen_orders_staff",
+            {
               p_slug: MENU_SLUG,
               p_pin: sessionPin,
-            });
-          }
-          if (res.error) throw res.error;
-          renderOrdersList(res.data || []);
+              p_item_ids: kitchenItemIds,
+            },
+          );
+          if (error) throw error;
+          // Belt and braces: if the server row includes item_id, make sure
+          // no bar item slips onto this screen.
+          const rows = (data || []).filter(
+            (r) => r.item_id == null || kitchenItemIds.includes(String(r.item_id)),
+          );
+          renderOrdersList(rows);
         } catch (e) {
           console.error("Could not load orders:", e);
-          const wrap = document.getElementById("ordersListWrap");
           if (wrap)
             wrap.innerHTML =
               '<p class="empty-state" style="padding:20px 0;">Could not load orders.</p>';
@@ -375,7 +387,7 @@
         if (!wrap) return;
         if (!rows.length) {
           wrap.innerHTML =
-            '<p class="empty-state" style="padding:20px 0;">No active orders right now.</p>';
+            '<p class="empty-state" style="padding:20px 0;">No meals ordered right now.</p>';
           return;
         }
         const byTable = new Map();
@@ -394,10 +406,6 @@
             const items = byTable.get(t);
             const pendingCount = items.filter((i) => i.status === "pending").length;
             const groups = groupOrdersByOrderId(items);
-            const billTotal = items.reduce(
-              (s, i) => s + (parseFloat(i.price) || 0) * i.qty,
-              0,
-            );
             return `<div class="admin-section-card">
       <div class="section-heading" style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center;">
         <span style="flex-shrink:0;">Table ${escapeHtml(t)}</span>
@@ -426,10 +434,6 @@
         </div>`,
         )
         .join("")}
-      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
-        <span>${currency}${billTotal.toFixed(2)}</span>
-      </div>
     </div>`;
           })
           .join("");
@@ -452,15 +456,15 @@
         }
       }
 
-      // Clearing on the bar screen only hides the table from THIS page —
-      // the waiters still see the order and nothing is archived or
-      // deleted. If the table orders again later, the new items show up.
+      // Clearing on the kitchen screen only hides the table from THIS page —
+      // the waiters and the bar still see the order and nothing is archived
+      // or deleted. If the table orders more meals later, they show up.
       async function clearTableOrders(tableNumber) {
-        const ok = confirm(`Remove Table ${tableNumber} from the bar screen?`);
+        const ok = confirm(`Remove Table ${tableNumber} from the kitchen screen?`);
         if (!ok) return;
         try {
           const { data, error } = await supabaseClient.rpc(
-            "clear_bar_table_staff",
+            "clear_kitchen_table_staff",
             { p_slug: MENU_SLUG, p_pin: sessionPin, p_table: tableNumber },
           );
           if (error || data !== true) throw error || new Error("rejected");
@@ -468,65 +472,6 @@
           refreshOrdersDashboard();
         } catch (e) {
           showToast("Could not remove table");
-        }
-      }
-
-      /* ---- call-waiter requests ---- */
-
-      async function refreshServiceRequests() {
-        try {
-          const { data, error } = await supabaseClient.rpc(
-            "get_open_service_requests_staff",
-            { p_slug: MENU_SLUG, p_pin: sessionPin },
-          );
-          if (error) throw error;
-          renderServiceRequests(data || []);
-        } catch (e) {
-          console.error("Could not load service requests:", e);
-        }
-      }
-
-      function renderServiceRequests(rows) {
-        const card = document.getElementById("serviceRequestsCard");
-        const list = document.getElementById("serviceRequestsList");
-        if (!card || !list) return;
-        if (!rows.length) {
-          card.style.display = "none";
-          list.innerHTML = "";
-          return;
-        }
-        card.style.display = "";
-        list.innerHTML = rows
-          .map(
-            (r) => `
-      <div class="order-item-row">
-        <span>Table ${escapeHtml(r.table_number)}${r.message ? " — " + escapeHtml(r.message) : ""}</span>
-        <button class="btn btn-sm btn-primary" data-req="${r.id}">Got it</button>
-      </div>`,
-          )
-          .join("");
-        list.querySelectorAll("[data-req]").forEach((btn) => {
-          btn.onclick = () => resolveServiceRequest(btn.dataset.req);
-        });
-      }
-
-      async function resolveServiceRequest(id) {
-        const btn = document.querySelector(`[data-req="${id}"]`);
-        const row = btn ? btn.closest(".order-item-row") : null;
-        if (btn) btn.disabled = true;
-        try {
-          const { error } = await supabaseClient.rpc(
-            "resolve_service_request_staff",
-            { p_slug: MENU_SLUG, p_pin: sessionPin, p_id: id },
-          );
-          if (error) throw error;
-          if (row) row.remove();
-          const list = document.getElementById("serviceRequestsList");
-          const card = document.getElementById("serviceRequestsCard");
-          if (list && card && !list.children.length) card.style.display = "none";
-        } catch (e) {
-          if (btn) btn.disabled = false;
-          showToast("Could not clear that notification");
         }
       }
 
@@ -541,6 +486,7 @@
         empty_trash: "Trash emptied",
         finish_table: "Table finished",
         bar_clear: "Bar cleared table",
+        kitchen_clear: "Kitchen cleared table",
         empty_finished: "Report cleared",
       };
 
@@ -594,7 +540,14 @@
         scroll.innerHTML = rows
           .map((r) => {
             const label = EDIT_LOG_ACTION_LABELS[r.action] || r.action;
-            const who = r.role === "owner" ? "Owner" : r.role === "bartender" ? "Bartender" : "Waiter";
+            const who =
+              r.role === "owner"
+                ? "Owner"
+                : r.role === "bartender"
+                  ? "Bartender"
+                  : r.role === "kitchen"
+                    ? "Kitchen"
+                    : "Waiter";
             const when = new Date(r.created_at).toLocaleString([], {
               month: "short",
               day: "numeric",
@@ -619,142 +572,6 @@
           .join("");
       }
 
-      /* ---- receipts (tables paid & closed by the waiters) ---- */
-      // Same panel as on the waiter page. Everyone can view; only the
-      // owner can delete (enforced server-side by empty_finished_staff).
-
-      function openReceipts() {
-        document.getElementById("receiptsOverlay").classList.remove("hidden");
-        document.body.style.overflow = "hidden";
-        renderReceipts();
-      }
-      function closeReceipts() {
-        document.getElementById("receiptsOverlay").classList.add("hidden");
-        document.body.style.overflow = "";
-      }
-      document.getElementById("receiptsOverlay").addEventListener("click", (e) => {
-        if (e.target.id === "receiptsOverlay") closeReceipts();
-      });
-      window.closeReceipts = closeReceipts;
-
-      function itemPriceNoteHtml(it) {
-        const unit = parseFloat(it.price) || 0;
-        const qty = Number(it.qty) || 1;
-        const text =
-          qty > 1
-            ? `${qty} × ${currency}${unit.toFixed(2)} = ${currency}${(unit * qty).toFixed(2)}`
-            : `${currency}${unit.toFixed(2)}`;
-        return `<small style="display:block; font-size:11.5px; color:var(--muted); font-weight:400; margin-top:1px;">${text}</small>`;
-      }
-
-      async function renderReceipts() {
-        const panel = document.getElementById("receiptsPanel");
-        if (!panel) return;
-        panel.innerHTML = `
-    <div class="panel-header">
-      <h2>Receipts</h2>
-      <button class="icon-btn" onclick="closeReceipts()">✕</button>
-    </div>
-    <div class="panel-scroll" id="receiptsScroll">
-      <p class="empty-state" style="padding:20px 0;">Loading…</p>
-    </div>`;
-        try {
-          const { data, error } = await supabaseClient.rpc("get_finished_staff", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-          });
-          if (error) throw error;
-          renderReceiptsList(data || []);
-        } catch (e) {
-          console.error("Could not load receipts:", e);
-          const scroll = document.getElementById("receiptsScroll");
-          if (scroll)
-            scroll.innerHTML =
-              '<p class="empty-state" style="padding:20px 0;">Could not load receipts.</p>';
-        }
-      }
-
-      function renderReceiptsList(rows) {
-        const scroll = document.getElementById("receiptsScroll");
-        if (!scroll) return;
-        if (!rows.length) {
-          scroll.innerHTML = '<p class="empty-state" style="padding:20px 0;">No receipts yet.</p>';
-          return;
-        }
-        const byTable = new Map();
-        rows.forEach((r) => {
-          if (!byTable.has(r.table_number)) byTable.set(r.table_number, []);
-          byTable.get(r.table_number).push(r);
-        });
-        const tables = Array.from(byTable.keys()).sort((a, b) => {
-          const na = parseFloat(a),
-            nb = parseFloat(b);
-          if (!isNaN(na) && !isNaN(nb)) return na - nb;
-          return String(a).localeCompare(String(b));
-        });
-        const grandTotal = rows.reduce((s, r) => s + (parseFloat(r.price) || 0) * r.qty, 0);
-        const html = tables
-          .map((t) => {
-            const items = byTable.get(t);
-            const groups = groupOrdersByOrderId(items);
-            const billTotal = items.reduce((s, i) => s + (parseFloat(i.price) || 0) * i.qty, 0);
-            return `<div class="admin-section-card">
-      <div class="section-heading" style="margin-bottom:10px;">Table ${escapeHtml(t)}</div>
-      ${groups
-        .map(
-          (g) => `
-        <div class="order-card">
-          <div class="order-card-head order-card-head-row">
-            <span>${new Date(g.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          </div>
-          ${g.items.map((it) => `<div class="order-item-row"><span>${it.qty}× ${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}</span></div>`).join("")}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
-        </div>`,
-        )
-        .join("")}
-      <div class="table-bill-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--border, rgba(255,255,255,0.1)); font-weight:600;">
-        <span>Bill</span>
-        <span>${currency}${billTotal.toFixed(2)}</span>
-      </div>
-    </div>`;
-          })
-          .join("");
-        scroll.innerHTML =
-          `<div class="admin-section-card" style="background:rgba(74,222,128,0.08); border-color:rgba(74,222,128,0.25);">
-      <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:16px;">
-        <span>Total (${tables.length} table${tables.length === 1 ? "" : "s"})</span>
-        <span>${currency}${grandTotal.toFixed(2)}</span>
-      </div>
-    </div>` +
-          html +
-          (staffRole === "owner"
-            ? `<div class="divider"></div><button class="btn btn-danger btn-block" type="button" onclick="emptyReceipts()">Delete all receipts — start new day</button>`
-            : "");
-      }
-
-      async function emptyReceipts() {
-        if (staffRole !== "owner") {
-          showToast("Only the owner can delete receipts");
-          return;
-        }
-        const ok = confirm(
-          "Delete all receipts? Do this only after you've recorded today's cash — it can't be undone.",
-        );
-        if (!ok) return;
-        try {
-          const { data, error } = await supabaseClient.rpc("empty_finished_staff", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPin,
-          });
-          if (error || data !== true) throw error || new Error("rejected");
-          showToast("Receipts deleted");
-          renderReceipts();
-        } catch (e) {
-          showToast("Could not delete receipts");
-        }
-      }
-      window.emptyReceipts = emptyReceipts;
-
       /* ---- wire up ---- */
 
       document.getElementById("unlockBtn").onclick = tryUnlock;
@@ -762,20 +579,15 @@
         if (e.key === "Enter") tryUnlock();
       });
       document.getElementById("lockBtn").onclick = lockBoard;
-      document.getElementById("receiptsBtn").onclick = openReceipts;
       document.getElementById("activityBtn").onclick = openActivity;
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible" && sessionPin) {
           refreshOrdersDashboard();
-          refreshServiceRequests();
         }
       });
       window.addEventListener("focus", () => {
-        if (sessionPin) {
-          refreshOrdersDashboard();
-          refreshServiceRequests();
-        }
+        if (sessionPin) refreshOrdersDashboard();
       });
 
       if (restoreSession()) enterBoard();
