@@ -1714,7 +1714,7 @@
             ? `<button class="icon-btn" type="button" onclick="openActivity()" title="Дневник на действията" aria-label="Дневник на действията">🕘</button>`
             : "";
         const finishedBtn = `<button class="icon-btn" type="button" onclick="openFinished()" title="Бележки" aria-label="Бележки">💰</button>`;
-        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="Затворени маси" aria-label="Затворени маси">🧺</button>`;
+        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="За плащане" aria-label="Затворени маси">🧺</button>`;
         // The table panel is now just a table picker: tap a table to open
         // its order cart, where all of that table's order logic lives (see
         // renderCartPanel). It no longer shows a live, all-tables list of
@@ -2100,7 +2100,7 @@
         if (!panel) return;
         panel.innerHTML = `
     <div class="panel-header">
-      <h2>Затворени маси</h2>
+      <h2>Сметки</h2>
       <button class="icon-btn" onclick="closeClosedCan()">✕</button>
     </div>
     <div class="panel-scroll" id="closedScroll">
@@ -2228,7 +2228,7 @@
       <div class="cart-total-row"><span>Сметка</span><span class="cart-total">${payCurrency()}${bill.toFixed(2)}</span></div>
       <div class="field" style="margin-top:14px;">
         <label>Клиентът дава (${escapeHtml(payCurrency())})</label>
-        <input type="number" inputmode="decimal" min="0" step="0.01" id="payGivenInput" placeholder="0.00" oninput="updatePayChange()">
+        <input type="text" inputmode="decimal" autocomplete="off" id="payGivenInput" placeholder="0,00" oninput="updatePayChange()">
       </div>
       <button class="btn btn-sm" type="button" onclick="setPayGivenExact()">Точна сума</button>
       <div class="cart-total-row" style="margin-top:16px;">
@@ -2254,7 +2254,17 @@
         const val = document.getElementById("payChangeValue");
         if (!inp || !label || !val) return;
         const bill = closedBills[payTable] || 0;
-        const given = parseFloat(inp.value);
+        // Waiters may type a comma or a dot as the decimal separator.
+        // Keep only digits and one separator, then read the comma as a dot.
+        let cleaned = inp.value.replace(/[^0-9.,]/g, "");
+        const sepIdx = cleaned.search(/[.,]/);
+        if (sepIdx !== -1) {
+          cleaned =
+            cleaned.slice(0, sepIdx + 1) +
+            cleaned.slice(sepIdx + 1).replace(/[.,]/g, "");
+        }
+        if (cleaned !== inp.value) inp.value = cleaned;
+        const given = parseFloat(cleaned.replace(",", "."));
         if (isNaN(given)) {
           label.textContent = "Ресто за връщане";
           val.textContent = payCurrency() + "0.00";
