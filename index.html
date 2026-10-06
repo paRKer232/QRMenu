@@ -1268,9 +1268,69 @@
             name: item.name,
             price: item.price,
             qty: 1,
+            note: "",
           });
         refreshCartUI();
       }
+      // Note UI for one cart line: the open text input, the saved note
+      // (tap to edit), or a small "+ Бележка" button.
+      function cartNoteHtml(c) {
+        if (c.noteOpen) {
+          return `<input type="text" class="cart-line-note" data-note-for="${c.item_id}" maxlength="140" enterkeyhint="done" placeholder="Бележка (напр. без лук)" value="${escapeHtml(c.note || "")}">`;
+        }
+        if (c.note) {
+          return `<button type="button" class="cart-note-add cart-note-view" onclick="openCartNote('${c.item_id}')">✎ ${escapeHtml(c.note)}</button>`;
+        }
+        return `<button type="button" class="cart-note-add" onclick="openCartNote('${c.item_id}')">+ Бележка</button>`;
+      }
+      // Closes every open note input in place (no full re-render, so taps
+      // on other buttons are never swallowed).
+      function closeCartNotes() {
+        activeCart().items.forEach((c) => {
+          if (!c.noteOpen) return;
+          const slot = document.querySelector(
+            `[data-note-slot="${c.item_id}"]`,
+          );
+          const inp = slot && slot.querySelector("[data-note-for]");
+          if (inp) c.note = inp.value.trim();
+          c.noteOpen = false;
+          if (slot) slot.innerHTML = cartNoteHtml(c);
+        });
+      }
+      // Reveals the note input for one cart line (hidden until the waiter
+      // taps "+ Бележка").
+      function openCartNote(itemId) {
+        const line = activeCart().items.find((c) => c.item_id === itemId);
+        if (!line) return;
+        closeCartNotes();
+        line.noteOpen = true;
+        const slot = document.querySelector(`[data-note-slot="${itemId}"]`);
+        if (slot) slot.innerHTML = cartNoteHtml(line);
+        const inp = document.querySelector(`[data-note-for="${itemId}"]`);
+        if (inp) inp.focus();
+      }
+      // Save as you type, and close the note field when tapping anywhere
+      // outside it (or pressing Enter / Done).
+      document.addEventListener("input", (e) => {
+        const inp = e.target.closest && e.target.closest("[data-note-for]");
+        if (!inp) return;
+        const line = activeCart().items.find(
+          (c) => c.item_id === inp.dataset.noteFor,
+        );
+        if (line) line.note = inp.value;
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && e.target.closest && e.target.closest("[data-note-for]")) {
+          e.preventDefault();
+          closeCartNotes();
+        }
+      });
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest) return;
+        if (e.target.closest(".cart-line-note, .cart-note-add")) return;
+        closeCartNotes();
+      });
+
       function decCartItem(itemId) {
         if (!staffOrderMode) return;
         if (!cartTapAllowed("dec:" + itemId)) return;
@@ -1438,7 +1498,7 @@
             if (editing && it.status !== "done") {
               return `
         <div class="order-item-row">
-          <span>${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}</span>
+          <span>${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}${it.note ? `<small class="item-note">${escapeHtml(it.note)}</small>` : ""}</span>
           <div class="qty-stepper">
             <button type="button" aria-label="Премахни един" onclick="adjustSentItemQty('${it.id}', ${it.qty}, -1, '${view}')">−</button>
             <span>${it.qty}</span>
@@ -1476,7 +1536,7 @@
         return `<small style="display:block; font-size:11.5px; color:var(--muted); font-weight:400; margin-top:1px;">${text}</small>`;
       }
       function itemLabelHtml(it) {
-        return `<span>${it.qty}× ${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}</span>`;
+        return `<span>${it.qty}× ${escapeHtml(it.item_name)}${itemPriceNoteHtml(it)}${it.note ? `<small class="item-note">${escapeHtml(it.note)}</small>` : ""}</span>`;
       }
 
       // Everything ordered for one table shows up as ONE combined order
@@ -1542,20 +1602,22 @@
               .map(
                 (c) => `
       <div class="cart-line">
-        <div class="cart-line-info">
-          <span class="cart-line-name">${escapeHtml(c.name)}</span>
-          <span class="cart-line-price">${currency}${(parseFloat(c.price) || 0).toFixed(2)}</span>
+        <div class="cart-line-main">
+          <div class="cart-line-info">
+            <span class="cart-line-name">${escapeHtml(c.name)}</span>
+            <span class="cart-line-price">${currency}${(parseFloat(c.price) || 0).toFixed(2)}</span>
+          </div>
+          <div class="qty-stepper">
+            <button type="button" aria-label="Премахни един" onclick="decCartItem('${c.item_id}')">−</button>
+            <span>${c.qty}</span>
+            <button type="button" aria-label="Добави един" onclick="addToCart('${c.item_id}')">+</button>
+          </div>
         </div>
-        <div class="qty-stepper">
-          <button type="button" aria-label="Премахни един" onclick="decCartItem('${c.item_id}')">−</button>
-          <span>${c.qty}</span>
-          <button type="button" aria-label="Добави един" onclick="addToCart('${c.item_id}')">+</button>
-        </div>
+        <div class="cart-note-slot" data-note-slot="${c.item_id}">${cartNoteHtml(c)}</div>
       </div>`,
               )
               .join("") +
             "</div>" +
-            `<div class="field"><label>Бележка за кухнята (по избор)</label><textarea id="cartNoteInput" placeholder="например - без лук">${escapeHtml(ac.note)}</textarea></div>` +
             `<div class="cart-total-row"><span>Общо</span><span class="cart-total">${currency}${total.toFixed(2)}</span></div>`;
         }
 
@@ -1577,7 +1639,6 @@
           ${editBtn}
         </div>
         ${itemsHtml}
-        ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
       </div>`;
               })
               .join("");
@@ -1608,12 +1669,6 @@
       <button class="btn btn-block" onclick="finishTakingOrder()">← Обратно към масите</button>
     </div>`;
 
-        const noteInput = document.getElementById("cartNoteInput");
-        if (noteInput) {
-          noteInput.onchange = () => {
-            activeCart().note = noteInput.value;
-          };
-        }
         if (Object.keys(editingOrders).length) startEditCountdownTicker();
       }
 
@@ -1622,22 +1677,35 @@
       async function placeOrder() {
         const ac = activeCart();
         if (!ac.items.length || !selectedTable) return false;
-        const noteInput = document.getElementById("cartNoteInput");
-        if (noteInput) ac.note = noteInput.value;
+        // Pick up any note still being typed.
+        document.querySelectorAll("[data-note-for]").forEach((inp) => {
+          const line = ac.items.find((c) => c.item_id === inp.dataset.noteFor);
+          if (line) line.note = inp.value;
+        });
+        // Each item can carry its own note. place_order stores one note per
+        // call, so items are sent in one call per distinct note.
+        const byNote = new Map();
+        ac.items.forEach((c) => {
+          const n = c.note ? c.note.trim() : "";
+          if (!byNote.has(n)) byNote.set(n, []);
+          byNote.get(n).push(c);
+        });
         try {
-          const { error } = await supabaseClient.rpc("place_order", {
-            p_slug: MENU_SLUG,
-            p_pin: sessionPinOrders,
-            p_table: selectedTable,
-            p_items: ac.items.map((c) => ({
-              item_id: c.item_id,
-              name: c.name,
-              price: c.price,
-              qty: c.qty,
-            })),
-            p_note: ac.note ? ac.note.trim() : null,
-          });
-          if (error) throw error;
+          for (const [n, lines] of byNote) {
+            const { error } = await supabaseClient.rpc("place_order", {
+              p_slug: MENU_SLUG,
+              p_pin: sessionPinOrders,
+              p_table: selectedTable,
+              p_items: lines.map((c) => ({
+                item_id: c.item_id,
+                name: c.name,
+                price: c.price,
+                qty: c.qty,
+              })),
+              p_note: n || null,
+            });
+            if (error) throw error;
+          }
           delete cartsByTable[selectedTable];
           refreshCartUI();
           showToast("Изпратено в бара!");
@@ -1696,10 +1764,12 @@
       <div class="panel-scroll">
         <div class="lock-screen">
           <p style="color:var(--muted); font-size:13.5px;">Въведете PIN на персонала, за да видите поръчките.</p>
-          <div class="field" style="max-width:180px; margin:14px auto;">
-            <input type="text" inputmode="numeric" maxlength="6" id="ordersPinInput" placeholder="••••••">
-          </div>
-          <button class="btn btn-primary" onclick="tryUnlockOrders()">Отключи</button>
+          <form autocomplete="off" onsubmit="event.preventDefault(); tryUnlockOrders();">
+            <div class="field" style="max-width:180px; margin:14px auto;">
+              <input type="text" inputmode="numeric" enterkeyhint="go" maxlength="6" id="ordersPinInput" placeholder="••••••">
+            </div>
+            <button class="btn btn-primary" type="submit">Отключи</button>
+          </form>
         </div>
       </div>`;
           return;
@@ -1918,7 +1988,6 @@
         </div>`,
             )
             .join("")}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
         </div>`,
         )
         .join("")}
@@ -2049,7 +2118,6 @@
         </div>`,
             )
             .join("")}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
         </div>`,
         )
         .join("")}
@@ -2168,7 +2236,6 @@
             ${editBtn}
           </div>
           ${itemsHtml}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
         </div>`;
         })
         .join("")}
@@ -3372,10 +3439,12 @@
       <div class="panel-scroll">
         <div class="lock-screen">
           <p style="color:var(--muted); font-size:13.5px;">Enter the 4-digit PIN to edit this menu.</p>
-          <div class="field" style="max-width:180px; margin:14px auto;">
-            <input type="text" inputmode="numeric" maxlength="6" id="pinInput" placeholder="••••••">
-          </div>
-          <button class="btn btn-primary" onclick="tryUnlock()">Unlock</button>
+          <form autocomplete="off" onsubmit="event.preventDefault(); tryUnlock();">
+            <div class="field" style="max-width:180px; margin:14px auto;">
+              <input type="text" inputmode="numeric" enterkeyhint="go" maxlength="6" id="pinInput" placeholder="••••••">
+            </div>
+            <button class="btn btn-primary" type="submit">Unlock</button>
+          </form>
           <!-- <p class="url-note">Default PIN — change it once you're in, under Business info.</p>-->
           <div class="admin-section-card">
   <div class="section-heading" style="margin-bottom:10px;">Photo storage</div>
@@ -3793,7 +3862,7 @@
           <div class="admin-section-card-head">
             <div class="section-type-label">Category</div>
             <input type="text" value="${escapeHtml(sec.title)}" data-role="sectionTitle" data-sid="${sec.id}" placeholder="Category name (e.g. Alcohols)">
-            <select data-role="sectionStation" data-sid="${sec.id}" title="Which screen shows orders from this category" style="flex:0 0 auto; width:auto; padding:6px 8px; border-radius:8px; border:1px solid var(--line, rgba(0,0,0,.2)); background:var(--bg-2); color:inherit; font:inherit; font-size:13px;">
+            <select data-role="sectionStation" data-sid="${sec.id}" title="Which screen shows orders from this category" style="flex:0 0 auto; width:auto; padding:6px 8px; border-radius:8px; border:1px solid var(--line, rgba(0,0,0,.2)); background:var(--bg-2); color:inherit; font:inherit; font-size:16px;">
               <option value="bar"${sec.station === "kitchen" ? "" : " selected"}>Bar</option>
               <option value="kitchen"${sec.station === "kitchen" ? " selected" : ""}>Kitchen</option>
             </select>

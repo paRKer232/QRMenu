@@ -91,10 +91,12 @@
       <div class="bar-lock-wrap" id="lockWrap">
         <div class="lock-screen">
           <p style="color:var(--muted); font-size:13.5px;">Enter your kitchen PIN.</p>
+          <form id="pinForm" autocomplete="off">
           <div class="field" style="max-width:180px; margin:14px auto;">
-            <input type="text" inputmode="numeric" maxlength="6" id="pinInput" placeholder="••••••" />
+            <input type="text" inputmode="numeric" maxlength="6" id="pinInput" enterkeyhint="go" placeholder="••••••" />
           </div>
-          <button class="btn btn-primary" id="unlockBtn">Unlock</button>
+          <button class="btn btn-primary" id="unlockBtn" type="submit">Unlock</button>
+          </form>
           <p style="color:var(--muted); font-size:11.5px; margin-top:16px; max-width:260px;">First time setting this up? Make sure the Supabase migration has been run — see <code>kitchen-backend-migration.sql</code> — or the PIN and/or the orders list won't work yet.</p>
         </div>
       </div>
@@ -425,13 +427,12 @@
             .map(
               (it) => `
         <div class="order-item-row ${it.status === "done" ? "done" : ""}">
-          <span>${it.qty}× ${escapeHtml(it.item_name)}</span>
+          <span>${it.qty}× ${escapeHtml(it.item_name)}${it.note ? `<small class="item-note">${escapeHtml(it.note)}</small>` : ""}</span>
           <button class="btn btn-sm ${it.status === "done" ? "" : "btn-primary"}" onclick="toggleItemStatus('${it.id}','${it.status}')">${it.status === "done" ? "Undo" : "Mark done"}</button>
         </div>`,
             )
             .join("")}
-          ${g.note ? `<p class="order-note">"${escapeHtml(g.note)}"</p>` : ""}
-        </div>`,
+          </div>`,
         )
         .join("")}
     </div>`;
@@ -574,9 +575,10 @@
 
       /* ---- wire up ---- */
 
-      document.getElementById("unlockBtn").onclick = tryUnlock;
-      document.getElementById("pinInput").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") tryUnlock();
+      // A form submit covers Enter on desktop and the Go/Enter key on phones.
+      document.getElementById("pinForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        tryUnlock();
       });
       document.getElementById("lockBtn").onclick = lockBoard;
       document.getElementById("activityBtn").onclick = openActivity;

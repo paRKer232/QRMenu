@@ -993,7 +993,7 @@ input[type="number"],
 textarea {
   width: 100%;
   font-family: "Inter", sans-serif;
-  font-size: 15px;
+  font-size: 16px; /* 16px+ stops iOS Safari zooming in on focus */
   padding: 12px;
   border: 1px solid var(--hairline-strong);
   border-radius: 10px;
@@ -1512,11 +1512,53 @@ textarea {
 }
 .cart-line {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.cart-line-main {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--hairline);
+}
+.cart-line-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+}
+.cart-note-add {
+  align-self: flex-start;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.cart-note-view {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-style: italic;
+}
+.item-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--muted);
 }
 .cart-line-info {
   display: flex;
@@ -1887,7 +1929,7 @@ textarea {
     font-size: 18px;
   }
   .admin-section-card-head input {
-    font-size: 14px;
+    font-size: 16px;
   }
   .field label {
     font-size: 10.5px;
