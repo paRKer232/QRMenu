@@ -1783,8 +1783,8 @@
           staffRole === "owner"
             ? `<button class="icon-btn" type="button" onclick="openActivity()" title="Дневник на действията" aria-label="Дневник на действията">🕘</button>`
             : "";
-        const finishedBtn = `<button class="icon-btn" type="button" onclick="openFinished()" title="Бележки" aria-label="Бележки">💰</button>`;
-        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="За плащане" aria-label="Затворени маси">🧺</button>`;
+        const finishedBtn = `<button class="icon-btn" type="button" onclick="openFinished()" title="Бележки" aria-label="Бележки"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/><text x="12" y="18.4" text-anchor="middle" font-size="9.5" font-weight="700" font-family="Arial, sans-serif" fill="currentColor" stroke="none">$</text></svg></button>`;
+        const closedBtn = `<button class="icon-btn" type="button" onclick="openClosedCan()" title="За плащане" aria-label="Затворени маси"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="19" text-anchor="middle" font-size="22" font-weight="700" font-family="Arial, sans-serif" fill="#F5B301">€</text></svg></button>`;
         // The table panel is now just a table picker: tap a table to open
         // its order cart, where all of that table's order logic lives (see
         // renderCartPanel). It no longer shows a live, all-tables list of
